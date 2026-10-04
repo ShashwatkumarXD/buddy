@@ -25,7 +25,8 @@ Personal use only: sprites are Nintendo IP fetched from PokéAPI's public sprite
 Python + GTK3 window under XWayland: undecorated, transparent (RGBA visual), keep-above,
 sticky (all workspaces), skip-taskbar/skip-pager. The window is moved programmatically each
 frame. An input-shape region limited to the sprite's opaque pixels makes everything else
-click-through.
+click-through. Exact window kind (normal keep-above utility window, DOCK type hint, or
+override-redirect popup) is decided by the spike below.
 
 **De-risk first:** the first implementation task is a ~20-line throwaway spike window that
 verifies on this machine: (1) stays above VS Code and a terminal, (2) clicks pass through the
@@ -86,9 +87,10 @@ DRAGGED → no bubble. Otherwise ❤️ > ❓ > 💢 (transient bubbles override
 
 ### Stress detection (hysteresis)
 
-Sample once per second. Enter stressed when mean CPU over the last `window_seconds` ≥
-`cpu_enter` **or** mean RAM ≥ `ram_enter`. Exit only when mean CPU < `cpu_exit` **and** mean
-RAM < `ram_exit` sustained for `window_seconds`. The panel shows current CPU% and RAM%.
+Sample once per second. Enter stressed when the window of the last `window_seconds` samples
+is full and mean CPU ≥ `cpu_enter` **or** mean RAM ≥ `ram_enter`. Exit only when **every**
+sample in the full window has CPU < `cpu_exit` **and** RAM < `ram_exit`. The panel shows the
+latest CPU% and RAM%.
 
 ### Sprites
 
@@ -111,7 +113,7 @@ bubble are click-through.
 - `./install.sh`: create `.venv` with `--system-site-packages` (for system PyGObject),
   `pip install -e .`, symlink `~/.local/bin/buddy`, prompt for a Pokémon (`buddy choose`),
   enable autostart, launch.
-- `buddy run` — start (re-execs itself with `GDK_BACKEND=x11` if unset). Writes a PID file at
+- `buddy run` — start (sets `GDK_BACKEND=x11` in-process before GTK is imported). Writes a PID file at
   `$XDG_RUNTIME_DIR/buddy.pid`; refuses to start a second instance.
 - `buddy choose <name>` — validate + download sprites, save to config, send `SIGHUP` to a
   running instance which reloads sprites/config.
@@ -123,8 +125,9 @@ bubble are click-through.
 ## Error handling
 
 - No network / unknown Pokémon during `choose`: clear message, config unchanged.
-- Missing/corrupt cached sprite at run: fall back to static image; if none, print an
-  instruction to run `buddy choose` and exit non-zero.
+- Missing/corrupt sprite cache at run: print an instruction to run `buddy choose <name>` and
+  exit non-zero. (The animated→static fallback happens at download time; only one variant is
+  cached.) A failed `choose` never replaces the existing cache.
 - XWayland unavailable (GTK fails to open X display): clear message and exit.
 - psutil read failure: treat as not stressed, keep running.
 
