@@ -120,7 +120,8 @@ def background_command() -> list[str]:
     python = Path(sys.executable)
     if _platform().startswith("win") and python.with_name("pythonw.exe").exists():
         python = python.with_name("pythonw.exe")
-    return [str(python), "-m", "buddy.cli", "run", "--foreground"]
+    # -P: don't put the current folder on sys.path, or a stray secrets.py there would be imported.
+    return [str(python), "-P", "-m", "buddy.cli", "run", "--foreground"]
 
 
 def _start_in_background() -> int:
@@ -133,7 +134,12 @@ def _start_in_background() -> int:
         detach = {"start_new_session": True}  # own session: no hang-up when the terminal closes
     with open(log, "w", encoding="utf-8") as err:
         child = subprocess.Popen(
-            background_command(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err, **detach
+            background_command(),
+            cwd=Path.home(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=err,
+            **detach,
         )
     deadline = time.monotonic() + START_TIMEOUT
     while time.monotonic() < deadline:

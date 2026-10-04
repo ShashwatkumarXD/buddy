@@ -496,7 +496,8 @@ def test_run_starts_buddy_in_its_own_session_and_returns(monkeypatch, spawned, c
     monkeypatch.setattr(cli.ipc, "is_running", lambda: next(answers))
     assert cli.main(["run"]) == 0
     [(command, kwargs)] = spawned
-    assert command == [sys.executable, "-m", "buddy.cli", "run", "--foreground"]
+    assert command == [sys.executable, "-P", "-m", "buddy.cli", "run", "--foreground"]
+    assert kwargs["cwd"] == cli.Path.home()  # never imports modules from the folder you ran it in
     assert kwargs["start_new_session"] is True  # no hang-up when the terminal closes
     assert kwargs["stdin"] is cli.subprocess.DEVNULL
     assert kwargs["stdout"] is cli.subprocess.DEVNULL
@@ -514,7 +515,7 @@ def test_run_on_windows_starts_buddy_detached_without_a_console(monkeypatch, spa
     monkeypatch.setattr(cli.ipc, "is_running", lambda: next(answers))
     assert cli.main(["run"]) == 0
     [(command, kwargs)] = spawned
-    assert command == [str(python.parent / "pythonw.exe"), "-m", "buddy.cli", "run", "--foreground"]
+    assert command == [str(python.parent / "pythonw.exe"), "-P", "-m", "buddy.cli", "run", "--foreground"]
     assert kwargs["creationflags"] & cli.DETACHED_PROCESS
     assert kwargs["creationflags"] & cli.CREATE_NEW_PROCESS_GROUP
     assert "start_new_session" not in kwargs
