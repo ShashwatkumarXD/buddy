@@ -112,3 +112,15 @@ def test_x11_library_check_tries_to_load_the_real_files():
 
     assert window._loadable("libc.so.6") is True
     assert window._loadable("libdefinitely-not-here.so.9") is False
+
+
+
+@pytest.mark.parametrize(
+    "pixels, scale, dpr, device",
+    [(12, 2, 1.0, 24), (12, 1.5, 1.0, 18), (12, 2, 1.25, 30), (12, 3, 1.5, 54), (1, 0.5, 1.0, 1)],
+)
+def test_images_are_scaled_straight_to_screen_pixels(pixels, scale, dpr, device):
+    """Scaling once, to the screen's real pixels, avoids Qt resampling the art again (shimmer at 125%/150%)."""
+    from buddy import window
+
+    assert window.device_pixels(pixels, scale, dpr) == device

@@ -33,6 +33,7 @@ if (-not (($userPath -split ";") -contains $binDir)) {
 }
 
 if ($Pokemon) { & $buddy choose $Pokemon } else { & $buddy choose }
+if ($LASTEXITCODE -ne 0) { Write-Host "Couldn't get that Pokemon (see the message above). Run install.ps1 again to retry."; exit 1 }
 & $buddy autostart on
 
 $found = @()
@@ -48,7 +49,7 @@ if ($found.Count -gt 0) {
 }
 
 & $buddy stop *> $null
-Start-Process -FilePath $buddyw -ArgumentList "run" -WindowStyle Hidden
+Start-Process -FilePath $buddyw -ArgumentList "run"
 
 Write-Host ""
 Write-Host "Buddy is running! Commands (in a new terminal):"

@@ -13,7 +13,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Callable
 
-from buddy import config, ipc
+from buddy import config, ipc, paths
 
 # `buddy event` runs on every AI-agent prompt, so heavy modules (sprites → Pillow, window → Qt)
 # are imported inside the commands that need them.
@@ -128,9 +128,12 @@ def cmd_run(args) -> int:
     except sprites.SpriteError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
-    if _platform().startswith("linux") and os.environ.get("WAYLAND_DISPLAY"):
-        # GNOME's Wayland won't let apps stay on top or place themselves; XWayland does.
-        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+    override = os.environ.get("BUDDY_QT_PLATFORM")
+    if override:
+        os.environ["QT_QPA_PLATFORM"] = override
+    elif _platform().startswith("linux") and os.environ.get("WAYLAND_DISPLAY") and os.environ.get("DISPLAY"):
+        # Wayland won't let apps stay on top or place themselves; XWayland does.
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
     try:
         from buddy import window
     except ImportError as e:
@@ -192,16 +195,17 @@ def cmd_autostart(args) -> int:
     return 0
 
 
-def _default_editor() -> list[str] | None:
+def _editor() -> tuple[list[str] | None, bool]:
+    """The editor command, and whether it blocks until editing is finished."""
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
     if editor:
-        return shlex.split(editor)
+        return shlex.split(editor), True
     platform = _platform()
     if platform.startswith("win"):
-        return ["notepad"]
+        return ["notepad"], False  # Windows 11 Notepad may hand off to an open window and exit
     if platform == "darwin":
-        return ["open", "-W", "-t"]  # TextEdit; waits until it's closed
-    return ["nano"] if shutil.which("nano") else None
+        return ["open", "-t"], False  # TextEdit stays running after its window closes
+    return (["nano"], True) if shutil.which("nano") else (None, True)
 
 
 def cmd_config(args) -> int:
@@ -210,11 +214,17 @@ def cmd_config(args) -> int:
     path = config.config_path()
     if not path.exists():
         config.save(config.Config(), path)
-    editor = _default_editor()
-    if editor:
+    editor, waits = _editor()
+    if editor is None:
+        print(f"Settings file: {path}")
+    elif waits:
         subprocess.call([*editor, str(path)])
     else:
-        print(f"Settings file: {path}")
+        subprocess.Popen([*editor, str(path)])
+        try:
+            input("Press Enter here once you've saved your changes… ")
+        except EOFError:
+            pass
     try:
         cfg = config.load(path)
     except config.ConfigError as e:
@@ -278,7 +288,10 @@ def _without_buddy_hooks(settings: dict) -> dict:
 
 
 def _buddy_hook(agent: Agent, event: str) -> dict:
-    command = f'"{Path(buddy_executable()).as_posix()}" event {event}' + (" --json" if agent.json_output else "")
+    exe = buddy_executable().replace("\\", "/")  # forward slashes work in bash, cmd and PowerShell
+    if any(ch.isspace() or ch in "\"'$`&;|()<>" for ch in exe):
+        exe = f'"{exe}"'  # PowerShell would read a quoted first word as a string, so quote only when needed
+    command = f"{exe} event {event}" + (" --json" if agent.json_output else "")
     hook = {"type": "command", "command": command, "timeout": agent.timeout}
     return {"name": f"buddy-{event}", **hook} if agent.json_output else hook
 
@@ -388,6 +401,10 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_event)
     sub.add_parser("guide", help="show the full guide").set_defaults(func=cmd_guide)
     args = parser.parse_args(argv)
+    if sys.stderr is None:  # started without a console (buddyw.exe, login items): keep errors in a log
+        log = paths.cache_dir() / "buddy.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        sys.stderr = open(log, "a", encoding="utf-8", buffering=1)
     return args.func(args)
 
 

@@ -67,16 +67,38 @@ def bubble_scale(sprite_scale: float) -> float:
     return max(1.0, sprite_scale / 2)
 
 
-def _scaled_image(path: Path, factor: float) -> QImage:
+def device_pixels(pixels: int, scale: float, dpr: float) -> int:
+    """Size in real screen pixels. Images are scaled once, straight to this, and tagged with the screen's
+    device-pixel ratio, so Qt never resamples the pixel art again (which shimmers at 125%/150% scaling)."""
+    return max(1, round(pixels * scale * dpr))
+
+
+def _dpr() -> float:
+    screen = QGuiApplication.primaryScreen()
+    return screen.devicePixelRatio() if screen is not None else 1.0
+
+
+def _pixmap(path: Path, scale: float, mirror: bool = False) -> QPixmap:
     image = QImage(str(path))
     if image.isNull():
         raise sprites.SpriteError(f"Unreadable image {path}")
-    return image.scaled(
-        round(image.width() * factor),
-        round(image.height() * factor),
+    dpr = _dpr()
+    image = image.scaled(
+        device_pixels(image.width(), scale, dpr),
+        device_pixels(image.height(), scale, dpr),
         Qt.AspectRatioMode.IgnoreAspectRatio,
         Qt.TransformationMode.FastTransformation,  # nearest neighbour keeps pixel art crisp
     )
+    if mirror:
+        image = image.transformed(QTransform().scale(-1, 1))
+    pixmap = QPixmap.fromImage(image)
+    pixmap.setDevicePixelRatio(dpr)
+    return pixmap
+
+
+def logical_size(pixmap: QPixmap) -> tuple[int, int]:
+    size = pixmap.deviceIndependentSize()
+    return round(size.width()), round(size.height())
 
 
 class Sprite:
@@ -85,18 +107,14 @@ class Sprite:
     def __init__(self, cached: sprites.CachedSprite, scale: float):
         self.faces = cached.faces
         self.anims = {}
-        mirror = QTransform().scale(-1, 1)
         for key, frames in cached.anims.items():
             native, mirrored, durations = [], [], []
             for path, ms in frames:
-                image = _scaled_image(path, scale)
-                native.append(QPixmap.fromImage(image))
-                mirrored.append(QPixmap.fromImage(image.transformed(mirror)))
+                native.append(_pixmap(path, scale))
+                mirrored.append(_pixmap(path, scale, mirror=True))
                 durations.append(max(20, ms))
             self.anims[key] = (native, mirrored, durations)
-        first = self.anims["walk"][0][0]
-        self.width = first.width()
-        self.height = first.height()
+        self.width, self.height = logical_size(self.anims["walk"][0][0])
         self.current = "idle"
         self.index = 0
         self._elapsed = 0.0
@@ -130,7 +148,7 @@ def _load_bubbles(factor: float) -> dict[Bubble, list[QPixmap]]:
             if not ref.is_file():
                 break
             with resources.as_file(ref) as path:
-                frames.append(QPixmap.fromImage(_scaled_image(path, factor)))
+                frames.append(_pixmap(path, factor))
         bubbles[bubble] = frames
     return bubbles
 
@@ -230,7 +248,7 @@ class Buddy:
     def _layout(self) -> None:
         """Decor window = [panel | sprite | panel] wide, bubble row above the sprite; bottoms aligned."""
         s = self.sprite
-        bubble_h = max(pb.height() for frames in self.bubbles.values() for pb in frames)
+        bubble_h = max(logical_size(pb)[1] for frames in self.bubbles.values() for pb in frames)
         self.sprite_off_x = PANEL_W + MARGIN
         self.decor_w = s.width + 2 * (PANEL_W + MARGIN)
         self.decor_h = max(bubble_h + MARGIN + s.height, PANEL_H)
@@ -297,8 +315,9 @@ class Buddy:
         if bubble is not None:
             frames = self.bubbles[bubble]
             pb = frames[frame_at(self._bubble_ms, bubble_durations(len(frames)))]
-            bx = self.sprite_off_x + (self.sprite.width - pb.width()) // 2
-            by = self.sprite_off_y - pb.height() - MARGIN
+            bw, bh = logical_size(pb)
+            bx = self.sprite_off_x + (self.sprite.width - bw) // 2
+            by = self.sprite_off_y - bh - MARGIN
             painter.drawPixmap(bx, by, pb)
         if b.stressed:
             room_right = b.bounds.right - (b.x + self.sprite.width)

@@ -1,3 +1,4 @@
+import os
 import plistlib
 import sys
 import threading
@@ -19,6 +20,8 @@ def xdg(tmp_path, monkeypatch):
     for var in ("HOME", "USERPROFILE"):  # Path.home() on POSIX / Windows
         monkeypatch.setenv(var, str(tmp_path / "home"))
     monkeypatch.setattr(cli, "_platform", lambda: "linux")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")  # restored after each test
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     return tmp_path
 
 
@@ -218,8 +221,8 @@ def test_claude_on_adds_thinking_and_done_hooks(claude_dir):
     settings = json.loads((claude_dir / "settings.json").read_text())
     prompt = settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]
     stop = settings["hooks"]["Stop"][0]["hooks"][0]
-    assert prompt == {"type": "command", "command": '"/opt/buddy/bin/buddy" event thinking', "timeout": 5}
-    assert stop == {"type": "command", "command": '"/opt/buddy/bin/buddy" event done', "timeout": 5}
+    assert prompt == {"type": "command", "command": "/opt/buddy/bin/buddy event thinking", "timeout": 5}
+    assert stop == {"type": "command", "command": "/opt/buddy/bin/buddy event done", "timeout": 5}
 
 
 def test_claude_on_preserves_existing_settings(claude_dir):
@@ -356,8 +359,8 @@ def test_gemini_hooks_use_before_and_after_agent_with_json_output(agent_home):
     settings = json.loads((agent_home / ".gemini" / "settings.json").read_text())
     before = settings["hooks"]["BeforeAgent"][0]["hooks"][0]
     after = settings["hooks"]["AfterAgent"][0]["hooks"][0]
-    assert before["command"] == '"/opt/buddy/bin/buddy" event thinking --json'
-    assert after["command"] == '"/opt/buddy/bin/buddy" event done --json'
+    assert before["command"] == "/opt/buddy/bin/buddy event thinking --json"
+    assert after["command"] == "/opt/buddy/bin/buddy event done --json"
     assert before["type"] == "command" and before["timeout"] == 5000  # Gemini timeouts are milliseconds
     assert before["name"] == "buddy-thinking"
 
@@ -367,7 +370,7 @@ def test_codex_hooks_go_in_hooks_json(agent_home):
     settings = json.loads((agent_home / ".codex" / "hooks.json").read_text())
     assert settings["hooks"]["UserPromptSubmit"][0]["hooks"][0] == {
         "type": "command",
-        "command": '"/opt/buddy/bin/buddy" event thinking',
+        "command": "/opt/buddy/bin/buddy event thinking",
         "timeout": 5,
     }
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("event done")
@@ -406,3 +409,58 @@ def test_codex_home_is_respected(agent_home, tmp_path, monkeypatch):
 def test_event_json_prints_an_empty_object_for_gemini(capsys):
     assert cli.main(["event", "thinking", "--json"]) == 0
     assert capsys.readouterr() == ("{}\n", "")
+
+
+
+# --- cross-platform review fixes --------------------------------------------------
+
+
+def test_hook_command_quotes_only_paths_that_need_it(claude_dir, monkeypatch):
+    import json
+
+    monkeypatch.setattr(cli, "buddy_executable", lambda: "C:\\Users\\Jo Smith\\buddy\\.venv\\Scripts\\buddy.exe")
+    cli.main(["claude", "on"])
+    command = json.loads((claude_dir / "settings.json").read_text())["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert command == '"C:/Users/Jo Smith/buddy/.venv/Scripts/buddy.exe" event done'
+
+
+def test_run_on_wayland_always_uses_xwayland(monkeypatch):
+    monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
+    monkeypatch.setitem(sys.modules, "buddy.window", None)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "wayland")  # e.g. exported globally on Sway/KDE
+    monkeypatch.delenv("BUDDY_QT_PLATFORM", raising=False)
+    cli.main(["run"])
+    assert os.environ["QT_QPA_PLATFORM"] == "xcb"
+
+
+def test_buddy_qt_platform_overrides_the_choice(monkeypatch):
+    monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
+    monkeypatch.setitem(sys.modules, "buddy.window", None)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setenv("BUDDY_QT_PLATFORM", "wayland")
+    cli.main(["run"])
+    assert os.environ["QT_QPA_PLATFORM"] == "wayland"
+
+
+def test_errors_go_to_a_log_file_when_there_is_no_console(monkeypatch):
+    monkeypatch.setattr(sys, "stderr", None)  # buddyw.exe / pythonw on Windows
+    assert cli.main(["run"]) == 1  # no sprites cached
+    from buddy import paths
+
+    assert "buddy choose" in (paths.cache_dir() / "buddy.log").read_text()
+
+
+def test_config_on_macos_waits_for_enter_not_for_textedit_to_quit(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_platform", lambda: "darwin")
+    monkeypatch.delenv("EDITOR", raising=False)
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
+    opened = []
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda args: opened.append(args))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    assert cli.main(["config"]) == 0
+    assert opened and opened[0][:2] == ["open", "-t"] and "-W" not in opened[0]
+    assert "Config OK" in capsys.readouterr().out

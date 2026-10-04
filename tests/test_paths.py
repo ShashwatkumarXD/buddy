@@ -16,6 +16,7 @@ def test_linux_defaults_without_xdg(monkeypatch, tmp_path):
     for var in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     assert paths.config_dir("linux") == tmp_path / ".config" / "buddy"
     assert paths.cache_dir("linux") == tmp_path / ".cache" / "buddy"
     assert paths.runtime_dir("linux") == tmp_path / ".cache" / "buddy"
@@ -31,6 +32,7 @@ def test_windows_uses_appdata(monkeypatch, tmp_path):
 
 def test_macos_uses_library(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     assert paths.config_dir("darwin") == tmp_path / "Library" / "Application Support" / "buddy"
     assert paths.cache_dir("darwin") == tmp_path / "Library" / "Caches" / "buddy"
     assert paths.runtime_dir("darwin") == tmp_path / "Library" / "Caches" / "buddy"
