@@ -1,21 +1,35 @@
 #!/usr/bin/env bash
-# Install buddy: ./install.sh [pokemon-name]
+# Install buddy on Linux or macOS: ./install.sh [pokemon-name]
+# (Windows: powershell -ExecutionPolicy Bypass -File install.ps1)
 set -euo pipefail
-cd "$(dirname "$(readlink -f "$0")")"
+cd "$(cd "$(dirname "$0")" && pwd)"
 REPO="$PWD"
 BUDDY="$REPO/.venv/bin/buddy"
-LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/buddy"
+OS="$(uname -s)"
+if [ "$OS" = "Darwin" ]; then LOG_DIR="$HOME/Library/Caches/buddy"; else LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/buddy"; fi
 
-command -v python3 >/dev/null || { echo "python3 is required"; exit 1; }
-if ! python3 -c "import gi; gi.require_foreign('cairo'); gi.require_version('Gtk', '3.0'); from gi.repository import Gtk" 2>/dev/null; then
-    echo "GTK bindings are missing. Install them with: sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0"
-    exit 1
-fi
-command -v Xwayland >/dev/null || echo "warning: Xwayland not found; on Wayland buddy needs it (sudo apt install xwayland)"
+command -v python3 >/dev/null || { echo "Python 3.11+ is required (https://www.python.org/downloads/)."; exit 1; }
+python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || { echo "Python 3.11 or newer is required."; exit 1; }
 
-echo "Setting up Python environment…"
-python3 -m venv --system-site-packages .venv
+echo "Setting up Python environment (downloads Qt the first time, about 80 MB)…"
+python3 -m venv .venv
 .venv/bin/pip install --quiet -e .
+
+if [ "$OS" = "Linux" ]; then
+    missing="$(.venv/bin/python -c 'from buddy.window import missing_x11_libraries as m; print(" ".join(m()))')"
+    if [ -n "$missing" ]; then
+        echo "Qt needs a few system libraries: $missing"
+        if [ -t 0 ] && command -v apt >/dev/null; then
+            read -r -p "Install them now with sudo apt? [Y/n] " answer || answer=n
+            case "${answer:-y}" in
+                [Yy]*) sudo apt install -y $missing ;;
+                *) echo "Buddy can't start until you run: sudo apt install $missing" ;;
+            esac
+        else
+            echo "Install them with your package manager (Ubuntu/Debian: sudo apt install $missing)."
+        fi
+    fi
+fi
 
 mkdir -p "$HOME/.local/bin" "$LOG_DIR"
 ln -sf "$BUDDY" "$HOME/.local/bin/buddy"
@@ -39,8 +53,14 @@ if [ -n "$found" ]; then
         echo "Found $found. To let your buddy react to them, run: buddy agents on"
     fi
 fi
+
 "$BUDDY" stop >/dev/null 2>&1 || true
-setsid -f "$BUDDY" run >"$LOG_DIR/buddy.log" 2>&1 </dev/null
+if command -v setsid >/dev/null; then
+    setsid -f "$BUDDY" run >"$LOG_DIR/buddy.log" 2>&1 </dev/null
+else
+    nohup "$BUDDY" run >"$LOG_DIR/buddy.log" 2>&1 </dev/null &
+    disown
+fi
 
 echo
 echo "Buddy is running! Commands:"
@@ -49,7 +69,6 @@ echo "  buddy config           edit thresholds, size, speed"
 echo "  buddy autostart off    don't start at login"
 echo "  buddy agents on|off    react to Claude Code / Gemini CLI / Codex"
 echo "  buddy guide            everything else"
-echo "  buddy stop / buddy run"
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) echo "Note: add ~/.local/bin to your PATH to use the 'buddy' command." ;;

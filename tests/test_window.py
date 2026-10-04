@@ -13,6 +13,7 @@ def runtime(tmp_path, monkeypatch):
     for var in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "APPDATA", "LOCALAPPDATA"):
         monkeypatch.setenv(var, str(tmp_path / var.lower()))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     return tmp_path
 
 

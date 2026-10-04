@@ -32,27 +32,36 @@ while Claude Code, Gemini CLI or Codex is working.
 
 ## What you need
 
-- **Linux with a GNOME desktop.** It's built and tested on Ubuntu 26.04 (Wayland). X11 sessions
-  should work too, but haven't been tested.
-- **Python 3.11 or newer.** Ubuntu already has it.
-- **An internet connection** the first time you pick a Pokémon, to download its sprite. After that
-  it works offline.
+- **Windows 10/11, macOS, or Linux.** It's built and tested on Ubuntu 26.04 (GNOME, Wayland).
+  Windows and macOS are covered by automated tests on every change, and confirmation on real
+  screens is welcome.
+- **Python 3.11 or newer.** Get it from [python.org](https://www.python.org/downloads/) if you don't
+  have it. On Windows, tick *"Add python.exe to PATH"* in the installer.
+- **Git**, to download Buddy. Alternatively, use *Code → Download ZIP* on GitHub.
+- **An internet connection** the first time: the installer downloads Qt (about 80 MB) and your
+  Pokémon's sprite. After that it works offline.
 
 ## Install
 
-**1. Install the system packages** (one time):
-
-```bash
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 git
-```
-
-**2. Download Buddy and run the installer:**
+**macOS or Linux:** open a terminal and run
 
 ```bash
 git clone https://github.com/ShashwatkumarXD/buddy.git
 cd buddy
 ./install.sh
 ```
+
+**Windows:** open PowerShell and run
+
+```powershell
+git clone https://github.com/ShashwatkumarXD/buddy.git
+cd buddy
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+> **Linux only:** Qt needs a few system libraries. The installer checks for them and offers to
+> install them with `sudo apt`. On Ubuntu the line is
+> `sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1`.
 
 The installer will:
 
@@ -63,9 +72,10 @@ The installer will:
 5. start your Buddy right away
 
 You can also name your Pokémon straight away: `./install.sh charmander`
+(on Windows, `install.ps1 charmander`).
 
 > **Tip:** if your terminal says `buddy: command not found` afterwards, open a new terminal.
-> If it still happens, add `~/.local/bin` to your `PATH`.
+> On macOS or Linux, if it still happens, add `~/.local/bin` to your `PATH`.
 
 ## Everyday use
 
@@ -140,15 +150,16 @@ for i in $(seq $(nproc)); do timeout 25 sh -c 'while :; do :; done' & done
 | Problem | Fix |
 |---|---|
 | Buddy doesn't appear | Run `buddy run` in a terminal and read the message it prints. |
-| "cairo bindings are missing" | `sudo apt install python3-gi-cairo` |
-| "could not open an X11 display" | `sudo apt install xwayland` |
+| "Qt needs some system libraries" (Linux) | Run the `sudo apt install …` line it prints. |
+| "could not connect to display" (Linux) | `sudo apt install xwayland` |
 | "No sprites cached for …" | `buddy choose <name>` (needs internet once) |
 | "Buddy is already running" | `buddy stop`, then `buddy run` |
 | Buddy doesn't react to my agent | `buddy agents on`, then restart the agent. For Codex, also approve via `/hooks`. |
 | Settings error | `buddy config` points at the problem line. Fix it and save. |
-| Not there after logging in | Check `journalctl --user -b \| grep -i buddy` |
+| Not there after logging in (Linux) | Check `journalctl --user -b \| grep -i buddy` |
+| Windows: only on one desktop | Buddy stays on the virtual desktop where it started. Windows doesn't let apps pin themselves to every desktop. |
 
-Logs from the installer's launch are in `~/.cache/buddy/buddy.log`.
+Logs from the installer's launch are in `~/.cache/buddy/buddy.log` (Linux) or `~/Library/Caches/buddy/buddy.log` (macOS).
 
 ## Uninstall
 
@@ -156,11 +167,15 @@ Logs from the installer's launch are in `~/.cache/buddy/buddy.log`.
 buddy agents off
 buddy stop
 buddy autostart off
-rm -f ~/.local/bin/buddy
-rm -rf ~/.config/buddy ~/.cache/buddy
 ```
 
-Then delete the `buddy` folder you cloned.
+Then delete Buddy's files and the `buddy` folder you cloned:
+
+| System | Files to delete |
+|---|---|
+| Linux | `~/.local/bin/buddy`, `~/.config/buddy`, `~/.cache/buddy` |
+| macOS | `~/.local/bin/buddy`, `~/Library/Application Support/buddy`, `~/Library/Caches/buddy` |
+| Windows | `%APPDATA%\buddy`, `%LOCALAPPDATA%\buddy` (and remove `%LOCALAPPDATA%\buddy\bin` from your user PATH) |
 
 ## For developers
 

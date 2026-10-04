@@ -7,13 +7,17 @@ import pytest
 
 from buddy import cli, config, ipc, sprites
 
+FAKE_EDITOR = f'"{sys.executable}" -c pass'  # an "editor" that exits at once, on every OS
+
 
 @pytest.fixture(autouse=True)
 def xdg(tmp_path, monkeypatch):
-    for var in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"):
+    for var in ("XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "APPDATA", "LOCALAPPDATA"):
         folder = tmp_path / var.lower()
         folder.mkdir()
         monkeypatch.setenv(var, str(folder))
+    for var in ("HOME", "USERPROFILE"):  # Path.home() on POSIX / Windows
+        monkeypatch.setenv(var, str(tmp_path / "home"))
     monkeypatch.setattr(cli, "_platform", lambda: "linux")
     return tmp_path
 
@@ -141,7 +145,7 @@ def test_run_without_sprites_explains_how_to_fix(capsys):
 
 
 def test_config_command_validates_after_editing(monkeypatch, capsys):
-    monkeypatch.setenv("EDITOR", "true")
+    monkeypatch.setenv("EDITOR", FAKE_EDITOR)
     monkeypatch.delenv("VISUAL", raising=False)
     monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
     assert cli.main(["config"]) == 0  # creates defaults
@@ -297,7 +301,7 @@ def test_run_with_invalid_config_keeps_the_chosen_pokemon(monkeypatch, capsys):
 
 
 def test_config_command_warns_when_sprite_is_not_downloaded(monkeypatch, capsys, sent):
-    monkeypatch.setenv("EDITOR", "true")
+    monkeypatch.setenv("EDITOR", FAKE_EDITOR)
     monkeypatch.delenv("VISUAL", raising=False)
     config.save(config.Config(pokemon="eevee"))
     assert cli.main(["config"]) == 1
@@ -307,6 +311,7 @@ def test_config_command_warns_when_sprite_is_not_downloaded(monkeypatch, capsys,
     assert sent == []
 
 
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="POSIX permissions")
 def test_claude_on_keeps_file_permissions(claude_dir):
     settings = claude_dir / "settings.json"
     settings.write_text('{"env": {"API_KEY": "secret"}}')
@@ -316,6 +321,7 @@ def test_claude_on_keeps_file_permissions(claude_dir):
     assert (claude_dir / "settings.json.buddy-backup").stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.skipif(sys.platform.startswith("win"), reason="symlinks need extra rights on Windows")
 def test_claude_on_writes_through_a_symlinked_settings_file(claude_dir, tmp_path):
     real = tmp_path / "dotfiles" / "settings.json"
     real.parent.mkdir()
@@ -334,6 +340,7 @@ def agent_home(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.setattr(cli, "buddy_executable", lambda: "/opt/buddy/bin/buddy")

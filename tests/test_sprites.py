@@ -108,9 +108,10 @@ def test_normalize_name():
     assert sprites.normalize_name("  Mr Mime ") == "mr-mime"
 
 
-def test_cache_dir_respects_xdg(monkeypatch, tmp_path):
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    assert sprites.cache_dir() == tmp_path / "buddy" / "sprites"
+def test_cache_dir_is_in_the_platform_cache_folder():
+    from buddy import paths
+
+    assert sprites.cache_dir() == paths.cache_dir() / "sprites"
 
 
 def test_lookup_reads_sprite_urls():

@@ -7,13 +7,16 @@ name = "buddy"
 version = "0.1.0"
 description = "A Pokémon desktop buddy that shows when your laptop is stressed"
 requires-python = ">=3.11"
-dependencies = ["psutil", "Pillow"]
+dependencies = ["PySide6-Essentials>=6.6", "psutil", "Pillow"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
 
 [project.scripts]
 buddy = "buddy.cli:main"
+
+[project.gui-scripts]
+buddyw = "buddy.cli:main"  # Windows: starts buddy without a console window
 
 [tool.setuptools]
 packages = ["buddy"]

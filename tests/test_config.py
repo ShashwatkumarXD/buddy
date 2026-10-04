@@ -41,9 +41,10 @@ def test_fractional_scale_is_allowed(tmp_path):
     assert config.load(path).scale == 1.25
 
 
-def test_default_path_respects_xdg(monkeypatch, tmp_path):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    assert config.config_path() == tmp_path / "buddy" / "config.toml"
+def test_default_path_is_in_the_platform_config_folder():
+    from buddy import paths
+
+    assert config.config_path() == paths.config_dir() / "config.toml"
 
 
 @pytest.mark.parametrize(
