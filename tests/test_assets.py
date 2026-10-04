@@ -5,9 +5,10 @@ from PIL import Image
 BUBBLES = Path(__file__).resolve().parent.parent / "buddy" / "assets" / "bubbles"
 
 
-def test_each_bubble_exists_as_small_transparent_png():
+def test_each_bubble_is_native_pixel_art():
     for name in ("love", "angry", "confused"):
         im = Image.open(BUBBLES / f"{name}.png")
         assert im.mode == "RGBA"
-        assert max(im.size) == 96
-        assert im.getchannel("A").getextrema()[0] == 0  # has transparent pixels
+        assert im.size == (40, 32)  # one pixel per art pixel; the window enlarges by whole numbers
+        assert set(im.getchannel("A").getextrema()) == {0, 255}
+        assert all(a in (0, 255) for a in im.getchannel("A").tobytes())  # hard pixel edges, no blur

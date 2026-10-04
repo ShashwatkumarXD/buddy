@@ -25,7 +25,6 @@ from buddy.monitor import StressMonitor  # noqa: E402
 
 WINDOW_MODE = "normal"  # "normal" | "dock" | "popup" — chosen by the Task 1 spike
 FPS = 30
-BUBBLE_SIZE = 48
 MOVING_STATES = (State.WALK, State.FALLING, State.DRAGGED)
 MARGIN = 4
 
@@ -72,12 +71,18 @@ class Sprite:
         return (native if facing == self.faces else mirrored)[self.index]
 
 
-def _load_bubbles() -> dict[Bubble, GdkPixbuf.Pixbuf]:
+def bubble_scale(sprite_scale: float) -> int:
+    """Whole-number enlargement for the 40x32 pixel-art bubbles, growing with the Pokémon."""
+    return max(1, round(sprite_scale / 1.5))
+
+
+def _load_bubbles(factor: int) -> dict[Bubble, GdkPixbuf.Pixbuf]:
     bubbles = {}
     for bubble in Bubble:
         ref = resources.files("buddy") / "assets" / "bubbles" / f"{bubble.value}.png"
         with resources.as_file(ref) as path:
-            bubbles[bubble] = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), BUBBLE_SIZE, BUBBLE_SIZE, True)
+            pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
+            bubbles[bubble] = pb.scale_simple(pb.get_width() * factor, pb.get_height() * factor, GdkPixbuf.InterpType.NEAREST)
     return bubbles
 
 
@@ -110,7 +115,7 @@ class BuddyWindow(Gtk.Window):
         self.connect("motion-notify-event", self._on_motion)
         self.connect("destroy", Gtk.main_quit)
 
-        self.bubbles = _load_bubbles()
+        self.bubbles = _load_bubbles(bubble_scale(cfg.scale))
         self.matrix = MatrixRain(PANEL_W, PANEL_H)
         self.cfg = cfg
         self.sprite = Sprite(cached, cfg.scale)
@@ -142,7 +147,8 @@ class BuddyWindow(Gtk.Window):
         s = self.sprite
         self.sprite_off_x = PANEL_W + MARGIN
         self.win_w = s.width + 2 * (PANEL_W + MARGIN)
-        self.win_h = max(BUBBLE_SIZE + MARGIN + s.height, PANEL_H)
+        bubble_h = self.bubbles[Bubble.LOVE].get_height()
+        self.win_h = max(bubble_h + MARGIN + s.height, PANEL_H)
         self.sprite_off_y = self.win_h - s.height
         self.panel_y = self.win_h - PANEL_H
         self.set_size_request(self.win_w, self.win_h)
@@ -188,9 +194,10 @@ class BuddyWindow(Gtk.Window):
         cr.paint()
         bubble = b.bubble
         if bubble is not None:
-            bx = self.sprite_off_x + (self.sprite.width - BUBBLE_SIZE) // 2
-            by = self.sprite_off_y - BUBBLE_SIZE - MARGIN
-            Gdk.cairo_set_source_pixbuf(cr, self.bubbles[bubble], bx, by)
+            pb = self.bubbles[bubble]
+            bx = self.sprite_off_x + (self.sprite.width - pb.get_width()) // 2
+            by = self.sprite_off_y - pb.get_height() - MARGIN
+            Gdk.cairo_set_source_pixbuf(cr, pb, bx, by)
             cr.paint()
         if b.stressed:
             room_right = b.bounds.right - (b.x + self.sprite.width)
@@ -226,6 +233,7 @@ class BuddyWindow(Gtk.Window):
             return True
         self.cfg = cfg
         self.sprite = Sprite(cached, cfg.scale)
+        self.bubbles = _load_bubbles(bubble_scale(cfg.scale))
         self.monitor = StressMonitor(cfg.stress)
         self.brain.walk_speed = cfg.walk_speed
         self.brain.resize(self.sprite.width, self.sprite.height)
