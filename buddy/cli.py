@@ -46,8 +46,9 @@ def _is_buddy_process(pid: int) -> bool:
         args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
     except OSError:
         return False
-    names = [Path(os.fsdecode(arg)).name for arg in args if arg]
-    return "buddy" in names and "run" in names
+    args = [os.fsdecode(arg) for arg in args if arg]
+    # The console script runs as: <python> <path>/buddy run
+    return len(args) >= 3 and Path(args[1]).name == "buddy" and args[2] == "run"
 
 
 def read_pid() -> int | None:
@@ -86,7 +87,7 @@ def cmd_run(args) -> int:
         cfg = config.load()
     except config.ConfigError as e:
         print(f"buddy: {e}\nbuddy: using default settings for now (fix with: buddy config)", file=sys.stderr)
-        cfg = config.Config()
+        cfg = config.salvage()
     try:
         cached = sprites.load_cached(cfg.pokemon, style=cfg.style)
     except sprites.SpriteError as e:
@@ -159,9 +160,14 @@ def cmd_config(args) -> int:
     else:
         print(f"Settings file: {path}")
     try:
-        config.load(path)
+        cfg = config.load(path)
     except config.ConfigError as e:
         print(f"buddy: {e}", file=sys.stderr)
+        return 1
+    try:
+        sprites.load_cached(cfg.pokemon, style=cfg.style)
+    except sprites.SpriteError as e:
+        print(f"buddy: settings are valid, but {e}", file=sys.stderr)
         return 1
     print("Config OK.")
     if _signal_running(signal.SIGHUP):
@@ -231,10 +237,12 @@ def cmd_claude(args) -> int:
     except (OSError, ValueError) as e:
         print(f"buddy: can't read {path} ({e}); left it unchanged.", file=sys.stderr)
         return 1
+    target = path.resolve() if path.exists() else path  # write through a dotfiles symlink
+    mode = target.stat().st_mode & 0o777 if target.exists() else 0o600  # may hold API keys
     settings = _without_buddy_hooks(settings)
     if args.state == "on":
         if text:
-            path.with_name(path.name + ".buddy-backup").write_text(text, encoding="utf-8")
+            _write_with_mode(path.with_name(path.name + ".buddy-backup"), text, mode)
         hooks = settings.setdefault("hooks", {})
         exe = buddy_executable()
         for name, (claude_event, _) in CLAUDE_EVENTS.items():
@@ -246,12 +254,20 @@ def cmd_claude(args) -> int:
         message = "Buddy will react to Claude Code. Restart open Claude Code sessions to pick this up."
     else:
         message = "Buddy no longer reacts to Claude Code."
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".buddy-tmp")
-    tmp.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".buddy-tmp")
+    _write_with_mode(tmp, json.dumps(settings, indent=2) + "\n", mode)
+    tmp.replace(target)
     print(message)
     return 0
+
+
+def _write_with_mode(path: Path, text: str, mode: int) -> None:
+    """Write text to a file that never exists with looser permissions than `mode`."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(path, mode)
 
 
 def cmd_event(args) -> int:

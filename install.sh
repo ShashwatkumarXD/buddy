@@ -25,9 +25,9 @@ if [ $# -ge 1 ]; then "$BUDDY" choose "$1"; else "$BUDDY" choose; fi
 
 if command -v claude >/dev/null; then
     if [ -t 0 ]; then
-        read -r -p "Found Claude Code. Let your buddy react to it? [Y/n] " answer
+        read -r -p "Found Claude Code. Let your buddy react to it? [Y/n] " answer || answer=n
         case "${answer:-y}" in
-            [Yy]*) "$BUDDY" claude on ;;
+            [Yy]*) "$BUDDY" claude on || echo "Couldn't set up Claude Code reactions; try later with: buddy claude on" ;;
             *) echo "Skipped. Turn it on later with: buddy claude on" ;;
         esac
     else

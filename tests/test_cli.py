@@ -17,9 +17,12 @@ def xdg(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def fake_buddy_process():
-    """A process whose command line looks like `... buddy run`."""
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", "buddy", "run"])
+def fake_buddy_process(tmp_path):
+    """A process whose command line looks like the console script: `python .../buddy run`."""
+    script = tmp_path / "bin" / "buddy"
+    script.parent.mkdir()
+    script.write_text("import time\ntime.sleep(30)\n")
+    proc = subprocess.Popen([sys.executable, str(script), "run"])
     yield proc
     proc.kill()
     proc.wait()
@@ -111,6 +114,7 @@ def test_run_without_sprites_explains_how_to_fix(capsys):
 def test_config_command_validates_after_editing(monkeypatch, capsys):
     monkeypatch.setenv("EDITOR", "true")
     monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
     assert cli.main(["config"]) == 0  # creates defaults
     assert config.config_path().exists()
     assert "Config OK" in capsys.readouterr().out
@@ -237,3 +241,62 @@ def test_event_signals_running_buddy(monkeypatch):
 def test_event_without_running_buddy_is_silent(capsys):
     assert cli.main(["event", "done"]) == 0
     assert capsys.readouterr() == ("", "")
+
+
+
+# --- review fixes ---------------------------------------------------------------
+
+
+def test_lookalike_process_is_not_mistaken_for_buddy():
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", "buddy", "run"])  # e.g. `uv run buddy`
+    try:
+        cli.pid_path().write_text(str(other.pid))
+        assert cli.read_pid() is None
+    finally:
+        other.kill()
+        other.wait()
+
+
+def test_run_with_invalid_config_keeps_the_chosen_pokemon(monkeypatch, capsys):
+    path = config.config_path()
+    path.parent.mkdir(parents=True)
+    path.write_text('pokemon = "eevee"\nstyle = "ds"\nscale = 10\n')
+    asked = []
+    monkeypatch.setattr(sprites, "load_cached", lambda name, style: asked.append((name, style)) or object())
+    monkeypatch.setitem(sys.modules, "buddy.window", None)
+    cli.main(["run"])
+    assert asked == [("eevee", "ds")]
+    assert "scale" in capsys.readouterr().err
+
+
+def test_config_command_warns_when_sprite_is_not_downloaded(monkeypatch, capsys):
+    monkeypatch.setenv("EDITOR", "true")
+    monkeypatch.delenv("VISUAL", raising=False)
+    config.save(config.Config(pokemon="eevee"))
+    sent = []
+    monkeypatch.setattr(cli, "read_pid", lambda: 4242)
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: sent.append(sig))
+    assert cli.main(["config"]) == 1
+    out, err = capsys.readouterr()
+    assert "buddy choose eevee" in err
+    assert "reloaded" not in out
+    assert sent == []
+
+
+def test_claude_on_keeps_file_permissions(claude_dir):
+    settings = claude_dir / "settings.json"
+    settings.write_text('{"env": {"API_KEY": "secret"}}')
+    settings.chmod(0o600)
+    assert cli.main(["claude", "on"]) == 0
+    assert settings.stat().st_mode & 0o777 == 0o600
+    assert (claude_dir / "settings.json.buddy-backup").stat().st_mode & 0o777 == 0o600
+
+
+def test_claude_on_writes_through_a_symlinked_settings_file(claude_dir, tmp_path):
+    real = tmp_path / "dotfiles" / "settings.json"
+    real.parent.mkdir()
+    real.write_text('{"model": "opus"}')
+    (claude_dir / "settings.json").symlink_to(real)
+    assert cli.main(["claude", "on"]) == 0
+    assert (claude_dir / "settings.json").is_symlink()
+    assert "event thinking" in real.read_text()

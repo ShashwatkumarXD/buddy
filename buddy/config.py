@@ -60,8 +60,24 @@ def load(path: Path | None = None) -> Config:
             ),
         )
         validate(cfg)
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError, ConfigError) as e:
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError, ConfigError) as e:
         raise ConfigError(f"{path}: {e}") from None
+    return cfg
+
+
+def salvage(path: Path | None = None) -> Config:
+    """Defaults for a broken config file, keeping its pokemon and style when those are valid."""
+    cfg = Config()
+    path = Path(path) if path else config_path()
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
+        return cfg
+    pokemon, style = data.get("pokemon"), data.get("style")
+    if isinstance(pokemon, str) and pokemon.strip():
+        cfg.pokemon = pokemon.strip().lower()
+    if isinstance(style, str) and style.strip().lower() in STYLES:
+        cfg.style = style.strip().lower()
     return cfg
 
 

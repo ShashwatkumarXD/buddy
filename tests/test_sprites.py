@@ -347,3 +347,16 @@ def test_hgss_pokemon_missing_from_pack_falls_back_to_mystery_dungeon(tmp_path):
     )
     assert [ms for _, ms in sprites.load_cached("pikachu", style="hgss", root=tmp_path).anims["walk"]] == [100, 200]
     assert "Mystery Dungeon" in notes[0]
+
+
+def test_hgss_pack_that_is_not_a_tarball_gives_clear_error(tmp_path):
+    fetch = CountingFetch({sprites.HGSS_PACK_URL: b"<html>captive portal</html>"})
+    with pytest.raises(sprites.SpriteError, match="sprite pack"):
+        sprites.download("pikachu", style="hgss", fetch_json=fetch_json_returning(api_json()), fetch_bytes=fetch, root=tmp_path)
+    assert not (tmp_path / sprites.HGSS_PACK_FILE).exists()
+
+
+def test_truncated_hgss_pack_gives_clear_error(tmp_path):
+    fetch = CountingFetch({sprites.HGSS_PACK_URL: hgss_pack()[:60]})
+    with pytest.raises(sprites.SpriteError, match="sprite pack"):
+        sprites.download("pikachu", style="hgss", fetch_json=fetch_json_returning(api_json()), fetch_bytes=fetch, root=tmp_path)

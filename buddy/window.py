@@ -22,6 +22,7 @@ from buddy.brain import Bounds, Brain, Bubble  # noqa: E402
 from buddy.config import Config  # noqa: E402
 from buddy.matrix import PANEL_H, PANEL_W, MatrixRain  # noqa: E402
 from buddy.monitor import StressMonitor  # noqa: E402
+from buddy.safety import keep_alive  # noqa: E402
 
 WINDOW_MODE = "normal"  # "normal" | "dock" | "popup" — chosen by the Task 1 spike
 FPS = 30
@@ -166,6 +167,7 @@ class BuddyWindow(Gtk.Window):
 
     # --- loop ------------------------------------------------------------
 
+    @keep_alive
     def _on_tick(self) -> bool:
         now = time.monotonic()
         dt, self._last = now - self._last, now
@@ -181,6 +183,7 @@ class BuddyWindow(Gtk.Window):
         self.queue_draw()
         return True
 
+    @keep_alive
     def _on_monitor(self) -> bool:
         self.brain.set_stressed(self.monitor.tick())
         return True
@@ -225,6 +228,7 @@ class BuddyWindow(Gtk.Window):
 
     # --- signals ---------------------------------------------------------
 
+    @keep_alive
     def reload(self) -> bool:
         try:
             cfg = config_mod.load()
@@ -241,10 +245,12 @@ class BuddyWindow(Gtk.Window):
         self._layout()
         return True  # keep the SIGHUP handler installed
 
+    @keep_alive
     def _on_claude_thinking(self) -> bool:
         self.brain.claude_thinking()
         return True
 
+    @keep_alive
     def _on_claude_done(self) -> bool:
         self.brain.claude_done()
         return True
