@@ -252,3 +252,9 @@ def test_empty_name_is_rejected(tmp_path):
 def test_load_cached_missing_gives_hint(tmp_path):
     with pytest.raises(sprites.SpriteError, match="buddy choose eevee"):
         sprites.load_cached("eevee", root=tmp_path)
+
+
+def test_parse_anim_data_refuses_entity_declarations():
+    bomb = '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY x "xxxxxxxx"><!ENTITY y "&x;&x;&x;&x;">]><AnimData>&y;</AnimData>'
+    with pytest.raises(sprites.SpriteError, match="DTD"):
+        sprites.parse_anim_data(bomb)

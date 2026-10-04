@@ -110,6 +110,8 @@ def decode_frames(data: bytes) -> Frames:
 
 def parse_anim_data(xml_text: str) -> dict[str, PmdAnim]:
     """Parse a SpriteCollab AnimData.xml into animations by name, following CopyOf links."""
+    if "<!DOCTYPE" in xml_text or "<!ENTITY" in xml_text:  # real files never have one; blocks entity bombs
+        raise SpriteError("Refusing animation data that contains a DTD.")
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
