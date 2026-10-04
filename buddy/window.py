@@ -36,25 +36,30 @@ WINDOW_FLAGS = (
     | Qt.WindowType.WindowDoesNotAcceptFocus
     | Qt.WindowType.NoDropShadowWindowHint
 )
-# Qt's X11 platform plugin needs these system libraries (Debian/Ubuntu package names).
+# Qt's X11 platform plugin needs these system libraries: file name -> Debian/Ubuntu package.
 X11_LIBRARIES = {
-    "xcb-cursor": "libxcb-cursor0",
-    "xkbcommon-x11": "libxkbcommon-x11-0",
-    "xcb-icccm": "libxcb-icccm4",
-    "xcb-image": "libxcb-image0",
-    "xcb-keysyms": "libxcb-keysyms1",
-    "xcb-render-util": "libxcb-render-util0",
-    "xcb-xkb": "libxcb-xkb1",
+    "libxcb-cursor.so.0": "libxcb-cursor0",
+    "libxkbcommon-x11.so.0": "libxkbcommon-x11-0",
+    "libxcb-icccm.so.4": "libxcb-icccm4",
+    "libxcb-image.so.0": "libxcb-image0",
+    "libxcb-keysyms.so.1": "libxcb-keysyms1",
+    "libxcb-render-util.so.0": "libxcb-render-util0",
+    "libxcb-xkb.so.1": "libxcb-xkb1",
 }
 
 
-def _find_library(name: str) -> str | None:
-    return ctypes.util.find_library(name)
+def _loadable(soname: str) -> bool:
+    """Can this shared library actually be loaded (same search rules Qt uses)?"""
+    try:
+        ctypes.CDLL(soname)
+        return True
+    except OSError:
+        return False
 
 
 def missing_x11_libraries() -> list[str]:
-    """Debian/Ubuntu packages Qt needs on X11/XWayland that aren't installed."""
-    return [package for lib, package in X11_LIBRARIES.items() if _find_library(lib) is None]
+    """Debian/Ubuntu packages Qt needs on X11/XWayland that can't be loaded."""
+    return [package for soname, package in X11_LIBRARIES.items() if not _loadable(soname)]
 
 
 def bubble_scale(sprite_scale: float) -> float:
@@ -330,6 +335,38 @@ class Buddy:
         self.decor.close()
 
 
+# --- X11 (Linux, incl. XWayland): show on every workspace ----------------------------------------
+
+
+def _x11_all_workspaces(widgets: list[QWidget]) -> None:
+    """Set _NET_WM_DESKTOP = 0xFFFFFFFF ("all desktops") before the windows are mapped."""
+    try:
+        x11 = ctypes.CDLL("libX11.so.6")
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XInternAtom.restype = ctypes.c_ulong
+        x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        x11.XChangeProperty.argtypes = [
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong,
+            ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_int,
+        ]
+        x11.XFlush.argtypes = [ctypes.c_void_p]
+        x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        display = x11.XOpenDisplay(None)
+        if not display:
+            return
+        desktop = x11.XInternAtom(display, b"_NET_WM_DESKTOP", 0)
+        all_desktops = ctypes.c_ulong(0xFFFFFFFF)
+        xa_cardinal, prop_mode_replace = 6, 0
+        for widget in widgets:
+            x11.XChangeProperty(display, int(widget.winId()), desktop, xa_cardinal, 32,
+                                prop_mode_replace, ctypes.byref(all_desktops), 1)
+        x11.XFlush(display)
+        x11.XCloseDisplay(display)
+    except Exception as e:  # cosmetic only; never stop buddy from running
+        print(f"buddy: couldn't show on every workspace ({e})", file=sys.stderr)
+
+
 # --- macOS: no Dock icon, visible on every Space (best effort, via the Objective-C runtime) ------
 
 
@@ -379,6 +416,8 @@ def run(cfg: Config, cached: sprites.CachedSprite) -> int:
     except sprites.SpriteError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
+    if app.platformName() == "xcb":
+        _x11_all_workspaces([buddy.pet, buddy.decor])
     buddy.show()
     if sys.platform == "darwin":
         _mac_tweaks([buddy.pet, buddy.decor])

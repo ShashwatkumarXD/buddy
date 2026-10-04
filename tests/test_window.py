@@ -103,5 +103,12 @@ def test_shutdown_removes_the_contact_file(qapp, runtime, cached):
 def test_missing_x11_libraries_are_reported(monkeypatch):
     from buddy import window
 
-    monkeypatch.setattr(window, "_find_library", lambda name: None if name == "xcb-cursor" else f"lib{name}.so")
+    monkeypatch.setattr(window, "_loadable", lambda soname: soname != "libxcb-cursor.so.0")
     assert window.missing_x11_libraries() == ["libxcb-cursor0"]
+
+
+def test_x11_library_check_tries_to_load_the_real_files():
+    from buddy import window
+
+    assert window._loadable("libc.so.6") is True
+    assert window._loadable("libdefinitely-not-here.so.9") is False
