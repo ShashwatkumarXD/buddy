@@ -150,3 +150,90 @@ def test_guide_covers_every_command_and_setting(capsys):
     for setting in ("pokemon", "style", "scale", "walk_speed", "cpu_enter", "ram_enter", "cpu_exit", "ram_exit", "window_seconds"):
         assert setting in out
     assert "UNINSTALL" in out.upper()
+
+
+# --- Claude Code integration -------------------------------------------------
+
+import json  # noqa: E402
+
+
+@pytest.fixture
+def claude_dir(tmp_path, monkeypatch):
+    folder = tmp_path / "claude"
+    folder.mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(folder))
+    monkeypatch.setattr(cli, "buddy_executable", lambda: "/opt/buddy/bin/buddy")
+    return folder
+
+
+def buddy_commands(settings):
+    return [
+        hook["command"]
+        for groups in settings.get("hooks", {}).values()
+        for group in groups
+        for hook in group.get("hooks", [])
+        if "buddy" in hook.get("command", "")
+    ]
+
+
+def test_claude_on_adds_thinking_and_done_hooks(claude_dir):
+    assert cli.main(["claude", "on"]) == 0
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    prompt = settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    stop = settings["hooks"]["Stop"][0]["hooks"][0]
+    assert prompt == {"type": "command", "command": '"/opt/buddy/bin/buddy" event thinking', "timeout": 5}
+    assert stop == {"type": "command", "command": '"/opt/buddy/bin/buddy" event done', "timeout": 5}
+
+
+def test_claude_on_preserves_existing_settings(claude_dir):
+    existing = {
+        "model": "opus",
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "notify-send done"}]}]},
+    }
+    (claude_dir / "settings.json").write_text(json.dumps(existing))
+    assert cli.main(["claude", "on"]) == 0
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    assert settings["model"] == "opus"
+    stop_commands = [h["command"] for g in settings["hooks"]["Stop"] for h in g["hooks"]]
+    assert "notify-send done" in stop_commands
+    assert json.loads((claude_dir / "settings.json.buddy-backup").read_text()) == existing
+
+
+def test_claude_on_is_idempotent(claude_dir):
+    cli.main(["claude", "on"])
+    cli.main(["claude", "on"])
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    assert len(buddy_commands(settings)) == 2
+
+
+def test_claude_off_removes_only_buddy_hooks(claude_dir):
+    (claude_dir / "settings.json").write_text(
+        json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "notify-send done"}]}]}})
+    )
+    cli.main(["claude", "on"])
+    assert cli.main(["claude", "off"]) == 0
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    assert buddy_commands(settings) == []
+    assert "UserPromptSubmit" not in settings["hooks"]
+    assert settings["hooks"]["Stop"] == [{"hooks": [{"type": "command", "command": "notify-send done"}]}]
+
+
+def test_claude_on_refuses_invalid_json(claude_dir, capsys):
+    (claude_dir / "settings.json").write_text("{not json")
+    assert cli.main(["claude", "on"]) == 1
+    assert (claude_dir / "settings.json").read_text() == "{not json"
+    assert "settings.json" in capsys.readouterr().err
+
+
+def test_event_signals_running_buddy(monkeypatch):
+    monkeypatch.setattr(cli, "read_pid", lambda: 4242)
+    sent = []
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    assert cli.main(["event", "thinking"]) == 0
+    assert cli.main(["event", "done"]) == 0
+    assert sent == [(4242, signal.SIGUSR1), (4242, signal.SIGUSR2)]
+
+
+def test_event_without_running_buddy_is_silent(capsys):
+    assert cli.main(["event", "done"]) == 0
+    assert capsys.readouterr() == ("", "")

@@ -1,5 +1,6 @@
 """Command line: buddy run | choose | autostart | config | stop."""
 import argparse
+import json
 import os
 import shlex
 import shutil
@@ -22,6 +23,9 @@ X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=5
 NoDisplay=true
 """
+
+
+CLAUDE_EVENTS = {"thinking": ("UserPromptSubmit", signal.SIGUSR1), "done": ("Stop", signal.SIGUSR2)}
 
 
 def pid_path() -> Path:
@@ -179,6 +183,86 @@ def cmd_stop(args) -> int:
     return 0
 
 
+def claude_settings_path() -> Path:
+    base = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    return base / "settings.json"
+
+
+def _is_buddy_hook(hook) -> bool:
+    command = hook.get("command", "") if isinstance(hook, dict) else ""
+    return "buddy" in command and command.endswith((" event thinking", " event done"))
+
+
+def _without_buddy_hooks(settings: dict) -> dict:
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return settings
+    for event in list(hooks):
+        groups = hooks[event]
+        if not isinstance(groups, list):
+            continue
+        kept = []
+        for group in groups:
+            if isinstance(group, dict) and isinstance(group.get("hooks"), list):
+                remaining = [hook for hook in group["hooks"] if not _is_buddy_hook(hook)]
+                if group["hooks"] and not remaining:
+                    continue  # the group held only buddy's hook
+                group = {**group, "hooks": remaining}
+            kept.append(group)
+        if kept:
+            hooks[event] = kept
+        else:
+            del hooks[event]
+    if not hooks:
+        del settings["hooks"]
+    return settings
+
+
+def cmd_claude(args) -> int:
+    path = claude_settings_path()
+    if args.state == "off" and not path.exists():
+        print("Buddy no longer reacts to Claude Code.")
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        settings = json.loads(text) if text.strip() else {}
+        if not isinstance(settings, dict) or not isinstance(settings.get("hooks", {}), dict):
+            raise ValueError("unexpected structure")
+    except (OSError, ValueError) as e:
+        print(f"buddy: can't read {path} ({e}); left it unchanged.", file=sys.stderr)
+        return 1
+    settings = _without_buddy_hooks(settings)
+    if args.state == "on":
+        if text:
+            path.with_name(path.name + ".buddy-backup").write_text(text, encoding="utf-8")
+        hooks = settings.setdefault("hooks", {})
+        exe = buddy_executable()
+        for name, (claude_event, _) in CLAUDE_EVENTS.items():
+            groups = hooks.setdefault(claude_event, [])
+            if not isinstance(groups, list):
+                print(f"buddy: unexpected '{claude_event}' hooks in {path}; left it unchanged.", file=sys.stderr)
+                return 1
+            groups.append({"hooks": [{"type": "command", "command": f'"{exe}" event {name}', "timeout": 5}]})
+        message = "Buddy will react to Claude Code. Restart open Claude Code sessions to pick this up."
+    else:
+        message = "Buddy no longer reacts to Claude Code."
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".buddy-tmp")
+    tmp.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    print(message)
+    return 0
+
+
+def cmd_event(args) -> int:
+    """Called by Claude Code hooks: must stay silent and always succeed."""
+    try:
+        _signal_running(CLAUDE_EVENTS[args.name][1])
+    except Exception:
+        pass
+    return 0
+
+
 def cmd_guide(args) -> int:
     print((resources.files("buddy") / "guide.txt").read_text(encoding="utf-8"))
     return 0
@@ -196,6 +280,12 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_autostart)
     sub.add_parser("config", help="edit settings").set_defaults(func=cmd_config)
     sub.add_parser("stop", help="stop buddy").set_defaults(func=cmd_stop)
+    p = sub.add_parser("claude", help="react to Claude Code (adds/removes its hooks)")
+    p.add_argument("state", choices=["on", "off"])
+    p.set_defaults(func=cmd_claude)
+    p = sub.add_parser("event", help="used by Claude Code hooks")
+    p.add_argument("name", choices=sorted(CLAUDE_EVENTS))
+    p.set_defaults(func=cmd_event)
     sub.add_parser("guide", help="show the full guide").set_defaults(func=cmd_guide)
     args = parser.parse_args(argv)
     return args.func(args)
