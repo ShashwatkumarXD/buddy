@@ -83,7 +83,7 @@ def cmd_run(args) -> int:
         print(f"buddy: {e}\nbuddy: using default settings for now (fix with: buddy config)", file=sys.stderr)
         cfg = config.Config()
     try:
-        frames = sprites.load_cached(cfg.pokemon)
+        cached = sprites.load_cached(cfg.pokemon, style=cfg.style)
     except sprites.SpriteError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
@@ -96,7 +96,7 @@ def cmd_run(args) -> int:
 
     pid_path().write_text(str(os.getpid()))
     try:
-        return window.run(cfg, frames)
+        return window.run(cfg, cached)
     finally:
         _remove_own_pid()
 
@@ -115,11 +115,14 @@ def cmd_choose(args) -> int:
             name = ""
         name = name or cfg.pokemon
     print(f"Fetching {name}…")
+    notes: list[str] = []
     try:
-        canonical = sprites.download(name)
+        canonical = sprites.download(name, style=cfg.style, notes=notes)
     except sprites.SpriteError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
+    for note in notes:
+        print(note)
     cfg.pokemon = canonical
     config.save(cfg)
     if _signal_running(signal.SIGHUP):

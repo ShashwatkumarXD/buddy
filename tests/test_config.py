@@ -7,13 +7,14 @@ from buddy.config import Config, StressConfig
 def test_missing_file_gives_defaults(tmp_path):
     cfg = config.load(tmp_path / "nope.toml")
     assert cfg == Config()
-    assert (cfg.pokemon, cfg.scale, cfg.walk_speed) == ("pikachu", 1.5, 20)
+    assert (cfg.pokemon, cfg.style, cfg.scale, cfg.walk_speed) == ("pikachu", "gba", 2, 20)
     assert cfg.stress == StressConfig(85, 90, 70, 85, 5)
 
 
 def test_round_trip(tmp_path):
     cfg = Config(
         pokemon="eevee",
+        style="ds",
         scale=3,
         walk_speed=35.5,
         stress=StressConfig(cpu_enter=80, ram_enter=92, cpu_exit=60, ram_exit=80, window_seconds=8),
@@ -30,7 +31,8 @@ def test_partial_file_fills_in_defaults(tmp_path):
     assert cfg.pokemon == "bulbasaur"
     assert cfg.stress.cpu_enter == 95
     assert cfg.stress.ram_enter == 90
-    assert cfg.scale == 1.5
+    assert cfg.scale == 2
+    assert cfg.style == "gba"
 
 
 def test_fractional_scale_is_allowed(tmp_path):
@@ -56,6 +58,7 @@ def test_default_path_respects_xdg(monkeypatch, tmp_path):
         ("[stress]\nram_enter = 150\n", "ram_enter"),
         ("[stress]\nwindow_seconds = 0\n", "window_seconds"),
         ("stress = 3\n", "stress"),
+        ('style = "snes"\n', "style"),
     ],
 )
 def test_invalid_config_raises_clear_error(tmp_path, text, message):

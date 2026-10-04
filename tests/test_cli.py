@@ -42,7 +42,7 @@ def test_autostart_off_removes_entry_and_is_idempotent(monkeypatch):
 
 
 def test_choose_saves_canonical_name_and_reloads_running_buddy(monkeypatch, capsys):
-    monkeypatch.setattr(sprites, "download", lambda name: "mr-mime")
+    monkeypatch.setattr(sprites, "download", lambda name, **kw: "mr-mime")
     monkeypatch.setattr(cli, "read_pid", lambda: 4242)
     sent = []
     monkeypatch.setattr(cli.os, "kill", lambda pid, sig: sent.append((pid, sig)))
@@ -55,7 +55,7 @@ def test_choose_saves_canonical_name_and_reloads_running_buddy(monkeypatch, caps
 def test_choose_failure_leaves_config_unchanged(monkeypatch, capsys):
     config.save(config.Config(pokemon="eevee"))
 
-    def fail(name):
+    def fail(name, **kw):
         raise sprites.SpriteError("No Pokémon called 'pikachuu'.")
 
     monkeypatch.setattr(sprites, "download", fail)
@@ -68,7 +68,7 @@ def test_choose_refuses_to_overwrite_broken_config(monkeypatch, capsys):
     path = config.config_path()
     path.parent.mkdir(parents=True)
     path.write_text("scale = 0\n")
-    monkeypatch.setattr(sprites, "download", lambda name: "eevee")
+    monkeypatch.setattr(sprites, "download", lambda name, **kw: "eevee")
     assert cli.main(["choose", "eevee"]) == 1
     assert path.read_text() == "scale = 0\n"
     assert "scale" in capsys.readouterr().err
@@ -120,8 +120,23 @@ def test_config_command_validates_after_editing(monkeypatch, capsys):
 
 
 def test_run_reports_missing_gtk_bindings(monkeypatch, capsys):
-    monkeypatch.setattr(sprites, "load_cached", lambda name: [("frame.png", 100)])
+    monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
     monkeypatch.setitem(sys.modules, "buddy.window", None)  # makes `from buddy import window` raise ImportError
     assert cli.main(["run"]) == 1
     assert "buddy:" in capsys.readouterr().err
     assert not cli.pid_path().exists()
+
+
+def test_choose_uses_configured_style_and_prints_fallback_notes(monkeypatch, capsys):
+    config.save(config.Config(style="ds"))
+    seen = {}
+
+    def download(name, style, notes):
+        seen["style"] = style
+        notes.append("No Mystery Dungeon sprite for zorua; using its Emerald sprite instead.")
+        return "zorua"
+
+    monkeypatch.setattr(sprites, "download", download)
+    assert cli.main(["choose", "zorua"]) == 0
+    assert seen["style"] == "ds"
+    assert "using its Emerald sprite" in capsys.readouterr().out

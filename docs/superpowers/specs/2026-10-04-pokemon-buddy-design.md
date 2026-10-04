@@ -52,7 +52,8 @@ All in package `buddy/`. Logic modules have no GTK imports so they are unit-test
 
 ```toml
 pokemon = "pikachu"
-scale = 1.5          # sprite pixel scale (0.5–6)
+style = "gba"        # gba = Mystery Dungeon sprites, ds = Black/White sprites
+scale = 2            # sprite pixel scale (0.5–6)
 walk_speed = 20      # px/s
 [stress]
 cpu_enter = 85       # % averaged over window
@@ -93,6 +94,15 @@ sample in the full window has CPU < `cpu_exit` **and** RAM < `ram_exit`. The pan
 latest CPU% and RAM%.
 
 ### Sprites
+
+**Style `gba` (default, chosen by the user 2026-10-04):** Mystery Dungeon-style sheets from
+PMDCollab SpriteCollab (`sprite/{id:04d}/AnimData.xml`, `Walk-Anim.png`, `Idle-Anim.png`).
+The right-facing row (row 2) is used and mirrored for left. Walk plays while moving/falling/
+dragged, Idle while standing/stressed. Frames are padded around their centres onto one canvas so
+walk and idle stay aligned. Missing on SpriteCollab → still Emerald (Gen III) sprite + a note.
+SpriteCollab art is CC BY-NC 4.0: credited in the README; personal use only.
+
+**Style `ds` (the original design, kept but not default):**
 
 - Lookup: `https://pokeapi.co/api/v2/pokemon/{name}` → id and sprite URLs.
 - Preferred: Gen-5 animated GIF (`versions.generation-v.black-white.animated.front_default`,

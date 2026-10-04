@@ -18,8 +18,8 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0   # once
 
 | Command | What it does |
 |---|---|
-| `buddy choose <name>` | Switch Pokémon (Gen 1–5 are animated) |
-| `buddy config` | Edit `~/.config/buddy/config.toml` (thresholds, `scale`, `walk_speed`) |
+| `buddy choose <name>` | Switch Pokémon |
+| `buddy config` | Edit `~/.config/buddy/config.toml` (`style`, thresholds, `scale`, `walk_speed`) |
 | `buddy autostart on\|off` | Start at login or not |
 | `buddy run` / `buddy stop` | Start / stop |
 
@@ -32,3 +32,10 @@ buddy stop; buddy autostart off
 rm ~/.local/bin/buddy
 rm -r ~/.config/buddy ~/.cache/buddy
 ```
+
+## Sprite credits
+
+Default `style = "gba"` uses Mystery Dungeon-style sprites from the
+[PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab) project (CC BY-NC 4.0,
+credit to their artists). `style = "ds"` uses Black/White sprites via [PokéAPI](https://pokeapi.co).
+Pokémon is © Nintendo / Creatures / GAME FREAK.

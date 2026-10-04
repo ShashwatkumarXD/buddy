@@ -3,7 +3,6 @@ import signal
 import sys
 import time
 from importlib import resources
-from pathlib import Path
 
 import cairo
 import gi
@@ -19,7 +18,7 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
 
 from buddy import config as config_mod  # noqa: E402
 from buddy import sprites  # noqa: E402
-from buddy.brain import Bounds, Brain, Bubble  # noqa: E402
+from buddy.brain import Bounds, Brain, Bubble, State  # noqa: E402
 from buddy.config import Config  # noqa: E402
 from buddy.matrix import PANEL_H, PANEL_W, MatrixRain  # noqa: E402
 from buddy.monitor import StressMonitor  # noqa: E402
@@ -27,33 +26,50 @@ from buddy.monitor import StressMonitor  # noqa: E402
 WINDOW_MODE = "normal"  # "normal" | "dock" | "popup" — chosen by the Task 1 spike
 FPS = 30
 BUBBLE_SIZE = 48
+MOVING_STATES = (State.WALK, State.FALLING, State.DRAGGED)
 MARGIN = 4
 
 
 class Sprite:
-    """Scaled animation frames; source art faces left, mirrored copies face right."""
+    """Scaled walk/idle animations, plus mirrored copies for the other direction."""
 
-    def __init__(self, frames: list[tuple[Path, int]], scale: float):
-        self.left, self.right, self.durations = [], [], []
-        for path, ms in frames:
-            pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
-            pb = pb.scale_simple(round(pb.get_width() * scale), round(pb.get_height() * scale), GdkPixbuf.InterpType.NEAREST)
-            self.left.append(pb)
-            self.right.append(pb.flip(True))
-            self.durations.append(ms)
-        self.width = self.left[0].get_width()
-        self.height = self.left[0].get_height()
+    def __init__(self, cached: sprites.CachedSprite, scale: float):
+        self.faces = cached.faces
+        self.anims = {}
+        for key, frames in cached.anims.items():
+            native, mirrored, durations = [], [], []
+            for path, ms in frames:
+                pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
+                pb = pb.scale_simple(
+                    round(pb.get_width() * scale), round(pb.get_height() * scale), GdkPixbuf.InterpType.NEAREST
+                )
+                native.append(pb)
+                mirrored.append(pb.flip(True))
+                durations.append(ms)
+            self.anims[key] = (native, mirrored, durations)
+        first = self.anims["walk"][0][0]
+        self.width = first.get_width()
+        self.height = first.get_height()
+        self.current = "idle"
         self.index = 0
         self._elapsed = 0.0
 
+    def play(self, key: str) -> None:
+        if key != self.current:
+            self.current = key
+            self.index = 0
+            self._elapsed = 0.0
+
     def advance(self, dt_ms: float) -> None:
+        durations = self.anims[self.current][2]
         self._elapsed += dt_ms
-        while self._elapsed >= self.durations[self.index]:
-            self._elapsed -= self.durations[self.index]
-            self.index = (self.index + 1) % len(self.durations)
+        while self._elapsed >= durations[self.index]:
+            self._elapsed -= durations[self.index]
+            self.index = (self.index + 1) % len(durations)
 
     def frame(self, facing: int) -> GdkPixbuf.Pixbuf:
-        return (self.right if facing > 0 else self.left)[self.index]
+        native, mirrored, _ = self.anims[self.current]
+        return (native if facing == self.faces else mirrored)[self.index]
 
 
 def _load_bubbles() -> dict[Bubble, GdkPixbuf.Pixbuf]:
@@ -66,7 +82,7 @@ def _load_bubbles() -> dict[Bubble, GdkPixbuf.Pixbuf]:
 
 
 class BuddyWindow(Gtk.Window):
-    def __init__(self, cfg: Config, frames: list[tuple[Path, int]]):
+    def __init__(self, cfg: Config, cached: sprites.CachedSprite):
         super().__init__(type=Gtk.WindowType.POPUP if WINDOW_MODE == "popup" else Gtk.WindowType.TOPLEVEL)
         visual = self.get_screen().get_rgba_visual()
         if visual is None:
@@ -97,7 +113,7 @@ class BuddyWindow(Gtk.Window):
         self.bubbles = _load_bubbles()
         self.matrix = MatrixRain(PANEL_W, PANEL_H)
         self.cfg = cfg
-        self.sprite = Sprite(frames, cfg.scale)
+        self.sprite = Sprite(cached, cfg.scale)
         self.monitor = StressMonitor(cfg.stress)
         self.brain = Brain(self._bounds(), self.sprite.width, self.sprite.height, cfg.walk_speed)
         self._moved_to = None
@@ -147,6 +163,7 @@ class BuddyWindow(Gtk.Window):
         now = time.monotonic()
         dt, self._last = now - self._last, now
         self.brain.tick(dt)
+        self.sprite.play("walk" if self.brain.state in MOVING_STATES else "idle")
         self.sprite.advance(min(dt, 0.1) * 1000)
         if self.brain.stressed:
             self.matrix.tick(dt)
@@ -203,12 +220,12 @@ class BuddyWindow(Gtk.Window):
     def reload(self) -> bool:
         try:
             cfg = config_mod.load()
-            frames = sprites.load_cached(cfg.pokemon)
+            cached = sprites.load_cached(cfg.pokemon, style=cfg.style)
         except (config_mod.ConfigError, sprites.SpriteError) as e:
             print(f"buddy: reload skipped: {e}", file=sys.stderr)
             return True
         self.cfg = cfg
-        self.sprite = Sprite(frames, cfg.scale)
+        self.sprite = Sprite(cached, cfg.scale)
         self.monitor = StressMonitor(cfg.stress)
         self.brain.walk_speed = cfg.walk_speed
         self.brain.resize(self.sprite.width, self.sprite.height)
@@ -220,7 +237,7 @@ class BuddyWindow(Gtk.Window):
         return False
 
 
-def run(cfg: Config, frames: list[tuple[Path, int]]) -> int:
+def run(cfg: Config, cached: sprites.CachedSprite) -> int:
     if Gdk.Display.get_default() is None:
         print(
             "buddy: could not open an X11 display. On Wayland buddy needs XWayland "
@@ -229,7 +246,7 @@ def run(cfg: Config, frames: list[tuple[Path, int]]) -> int:
         )
         return 1
     try:
-        win = BuddyWindow(cfg, frames)
+        win = BuddyWindow(cfg, cached)
     except RuntimeError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
