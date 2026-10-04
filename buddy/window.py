@@ -71,18 +71,18 @@ class Sprite:
         return (native if facing == self.faces else mirrored)[self.index]
 
 
-def bubble_scale(sprite_scale: float) -> int:
-    """Whole-number enlargement for the 40x32 pixel-art bubbles, growing with the Pokémon."""
-    return max(1, round(sprite_scale / 1.5))
+def bubble_scale(sprite_scale: float) -> float:
+    """Enlargement for the 40x32 pixel-art bubbles: half the Pokémon's scale, never below native size."""
+    return max(1.0, sprite_scale / 2)
 
 
-def _load_bubbles(factor: int) -> dict[Bubble, GdkPixbuf.Pixbuf]:
+def _load_bubbles(factor: float) -> dict[Bubble, GdkPixbuf.Pixbuf]:
     bubbles = {}
     for bubble in Bubble:
         ref = resources.files("buddy") / "assets" / "bubbles" / f"{bubble.value}.png"
         with resources.as_file(ref) as path:
             pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
-            bubbles[bubble] = pb.scale_simple(pb.get_width() * factor, pb.get_height() * factor, GdkPixbuf.InterpType.NEAREST)
+            bubbles[bubble] = pb.scale_simple(round(pb.get_width() * factor), round(pb.get_height() * factor), GdkPixbuf.InterpType.NEAREST)
     return bubbles
 
 

@@ -46,7 +46,7 @@ All in package `buddy/`. Logic modules have no GTK imports so they are unit-test
 | `matrix.py` | Draw Matrix rain panel with CPU/RAM text onto a cairo context | cairo |
 | `window.py` | GTK window, ~30 fps tick, input events → brain, render sprite/bubble/panel, input shape | GTK3, all above |
 | `cli.py` | `buddy run/choose/autostart/config/stop` | all above |
-| `assets/bubbles/` | `love.png`, `angry.png`, `confused.png` (user-supplied pixel art, 40×32 native), enlarged ×round(scale/1.5) with nearest-neighbour | — |
+| `assets/bubbles/` | `love.png`, `angry.png`, `confused.png` (user-supplied pixel art, 40×32 native), enlarged ×max(1, scale/2) with nearest-neighbour | — |
 
 ### config.toml (defaults)
 
