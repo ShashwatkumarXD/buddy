@@ -203,3 +203,108 @@ def test_resize_keeps_pet_on_ground():
     b = make()
     b.resize(100, 120)
     assert b.y == BOUNDS.floor - 120
+
+
+# --- Claude Code reactions -------------------------------------------------
+
+from buddy.brain import EXCLAIM_SECONDS, HOPS_WHEN_DONE, THINK_TIMEOUT  # noqa: E402
+
+
+def count_hops(brain, seconds, step=1 / 30):
+    hops, airborne = 0, brain.y < brain.ground_y
+    for _ in range(round(seconds / step)):
+        brain.tick(step)
+        now_airborne = brain.y < brain.ground_y
+        if now_airborne and not airborne:
+            hops += 1
+        airborne = now_airborne
+    return hops
+
+
+def test_thinking_spot_is_fifteen_percent_in_from_the_right():
+    b = make()
+    assert b.thinking_x == pytest.approx(BOUNDS.right - W - 0.15 * (BOUNDS.right - BOUNDS.left))
+
+
+def test_thinking_walks_to_the_spot_and_shows_thinking_bubble():
+    b = make()
+    b.claude_thinking()
+    assert b.state is State.THINKING
+    assert b.bubble is Bubble.THINKING
+    b.tick(1 / 30)
+    assert b.moving and b.facing == 1
+    run(b, 10.0)
+    assert b.x == pytest.approx(b.thinking_x)
+    assert not b.moving
+    assert b.state is State.THINKING
+    assert b.bubble is Bubble.THINKING
+
+
+def test_done_shows_exclaim_and_hops_three_times_then_wanders():
+    b = make()
+    b.claude_thinking()
+    run(b, 10.0)
+    b.claude_done()
+    assert b.bubble is Bubble.EXCLAIM
+    hops = count_hops(b, EXCLAIM_SECONDS)
+    assert hops == HOPS_WHEN_DONE  # counts take-offs, including the one claude_done() launched
+    assert b.y == b.ground_y
+    run(b, 0.2)
+    assert b.bubble is None
+    assert b.state in (State.IDLE, State.WALK)
+
+
+def test_done_hops_exactly_three_times_in_total():
+    b = make()
+    b.claude_done()
+    assert b.y == b.ground_y and b.vy < 0  # first hop launched
+    assert count_hops(b, 5.0) == HOPS_WHEN_DONE
+
+
+def test_dragging_while_thinking_returns_to_the_spot():
+    b = make()
+    b.claude_thinking()
+    b.press(b.x, b.y)
+    b.motion(100, 300)
+    b.release(100, 300)
+    run(b, 2.0)
+    assert b.state is State.THINKING
+    run(b, 10.0)
+    assert b.x == pytest.approx(b.thinking_x)
+
+
+def test_thinking_times_out():
+    b = make()
+    b.claude_thinking()
+    for _ in range(int(THINK_TIMEOUT / 0.1) + 5):
+        b.tick(0.1)
+    assert b.state is not State.THINKING
+    assert b.bubble is None
+
+
+def test_stress_while_thinking_keeps_thinking_with_thinking_bubble():
+    b = make()
+    b.claude_thinking()
+    b.set_stressed(True)
+    assert b.state is State.THINKING
+    assert b.bubble is Bubble.THINKING
+    run(b, 10.0)
+    b.claude_done()
+    run(b, EXCLAIM_SECONDS + 0.2)
+    assert b.state is State.STRESSED
+    assert b.bubble is Bubble.ANGRY
+
+
+def test_love_outranks_thinking():
+    b = make()
+    b.claude_thinking()
+    b.press(b.x + 1, b.y + 1)
+    b.release(b.x + 1, b.y + 1)
+    assert b.bubble is Bubble.LOVE
+
+
+def test_moving_follows_state():
+    b = make()
+    assert not b.moving  # idle
+    b = walking()
+    assert b.moving
