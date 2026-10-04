@@ -1,10 +1,11 @@
-import signal
-import subprocess
+import plistlib
 import sys
+import threading
+import time
 
 import pytest
 
-from buddy import cli, config, sprites
+from buddy import cli, config, ipc, sprites
 
 
 @pytest.fixture(autouse=True)
@@ -13,26 +14,47 @@ def xdg(tmp_path, monkeypatch):
         folder = tmp_path / var.lower()
         folder.mkdir()
         monkeypatch.setenv(var, str(folder))
+    monkeypatch.setattr(cli, "_platform", lambda: "linux")
     return tmp_path
 
 
 @pytest.fixture
-def fake_buddy_process(tmp_path):
-    """A process whose command line looks like the console script: `python .../buddy run`."""
-    script = tmp_path / "bin" / "buddy"
-    script.parent.mkdir()
-    script.write_text("import time\ntime.sleep(30)\n")
-    proc = subprocess.Popen([sys.executable, str(script), "run"])
-    yield proc
-    proc.kill()
-    proc.wait()
+def sent(monkeypatch):
+    """Pretend a buddy is running and record what the CLI sends it."""
+    commands = []
+    monkeypatch.setattr(cli.ipc, "send", lambda command, **kw: commands.append(command) or True)
+    return commands
 
 
-def test_autostart_on_writes_desktop_entry(monkeypatch):
+@pytest.fixture
+def live_buddy():
+    """A real IPC server answering in a background thread, like a running buddy."""
+    server = ipc.Server()
+    server.write_contact()
+    received, stop = [], threading.Event()
+
+    def serve():
+        while not stop.is_set():
+            for command in server.poll():
+                received.append(command)
+                if command == "quit":
+                    server.remove_contact()
+                    stop.set()
+            time.sleep(0.01)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield received
+    stop.set()
+    thread.join(2)
+    server.close()
+
+
+def test_autostart_on_writes_desktop_entry_on_linux(monkeypatch):
     monkeypatch.setattr(cli, "buddy_executable", lambda: "/opt/buddy/bin/buddy")
     assert cli.main(["autostart", "on"]) == 0
     text = cli.autostart_path().read_text()
-    assert 'Exec=env GDK_BACKEND=x11 "/opt/buddy/bin/buddy" run' in text
+    assert 'Exec="/opt/buddy/bin/buddy" run' in text
     assert "Type=Application" in text
 
 
@@ -44,14 +66,34 @@ def test_autostart_off_removes_entry_and_is_idempotent(monkeypatch):
     assert cli.main(["autostart", "off"]) == 0
 
 
-def test_choose_saves_canonical_name_and_reloads_running_buddy(monkeypatch, capsys):
+def test_autostart_on_macos_writes_a_launch_agent(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "_platform", lambda: "darwin")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(cli, "buddy_executable", lambda: "/Users/me/buddy/.venv/bin/buddy")
+    assert cli.main(["autostart", "on"]) == 0
+    path = tmp_path / "home" / "Library" / "LaunchAgents" / "com.buddy.pet.plist"
+    agent = plistlib.loads(path.read_bytes())
+    assert agent["ProgramArguments"] == ["/Users/me/buddy/.venv/bin/buddy", "run"]
+    assert agent["RunAtLoad"] is True
+    assert cli.main(["autostart", "off"]) == 0
+    assert not path.exists()
+
+
+def test_autostart_on_windows_uses_the_run_key_without_a_console(monkeypatch):
+    monkeypatch.setattr(cli, "_platform", lambda: "win32")
+    monkeypatch.setattr(cli, "gui_executable", lambda: "C:/Users/me/buddy/.venv/Scripts/buddyw.exe")
+    calls = []
+    monkeypatch.setattr(cli, "_set_windows_autostart", calls.append)
+    assert cli.main(["autostart", "on"]) == 0
+    assert cli.main(["autostart", "off"]) == 0
+    assert calls == ['"C:/Users/me/buddy/.venv/Scripts/buddyw.exe" run', None]
+
+
+def test_choose_saves_canonical_name_and_reloads_running_buddy(monkeypatch, capsys, sent):
     monkeypatch.setattr(sprites, "download", lambda name, **kw: "mr-mime")
-    monkeypatch.setattr(cli, "read_pid", lambda: 4242)
-    sent = []
-    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: sent.append((pid, sig)))
     assert cli.main(["choose", "Mr Mime"]) == 0
     assert config.load().pokemon == "mr-mime"
-    assert sent == [(4242, signal.SIGHUP)]
+    assert sent == ["reload"]
     assert "Switched to mr-mime" in capsys.readouterr().out
 
 
@@ -77,31 +119,18 @@ def test_choose_refuses_to_overwrite_broken_config(monkeypatch, capsys):
     assert "scale" in capsys.readouterr().err
 
 
-def test_read_pid_recognises_running_buddy(fake_buddy_process):
-    cli.pid_path().write_text(str(fake_buddy_process.pid))
-    assert cli.read_pid() == fake_buddy_process.pid
-
-
-def test_stale_pid_is_ignored_and_not_killed():
-    other = subprocess.Popen(["sleep", "30"])
-    try:
-        cli.pid_path().write_text(str(other.pid))
-        assert cli.read_pid() is None
-        assert cli.main(["stop"]) == 1
-        assert other.poll() is None  # still alive
-    finally:
-        other.kill()
-        other.wait()
-
-
-def test_stop_terminates_running_buddy(fake_buddy_process):
-    cli.pid_path().write_text(str(fake_buddy_process.pid))
+def test_stop_asks_the_running_buddy_to_quit(live_buddy, capsys):
     assert cli.main(["stop"]) == 0
-    assert fake_buddy_process.wait(timeout=5) == -signal.SIGTERM
+    assert live_buddy == ["quit"]
+    assert "stopped" in capsys.readouterr().out
 
 
-def test_run_refuses_second_instance(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "read_pid", lambda: 123)
+def test_stop_when_nothing_is_running(capsys):
+    assert cli.main(["stop"]) == 1
+    assert "not running" in capsys.readouterr().out
+
+
+def test_run_refuses_second_instance(live_buddy, capsys):
     assert cli.main(["run"]) == 1
     assert "already running" in capsys.readouterr().out
 
@@ -123,12 +152,12 @@ def test_config_command_validates_after_editing(monkeypatch, capsys):
     assert "cpu_exit" in capsys.readouterr().err
 
 
-def test_run_reports_missing_gtk_bindings(monkeypatch, capsys):
+def test_run_reports_missing_gui_library(monkeypatch, capsys):
     monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
     monkeypatch.setitem(sys.modules, "buddy.window", None)  # makes `from buddy import window` raise ImportError
     assert cli.main(["run"]) == 1
     assert "buddy:" in capsys.readouterr().err
-    assert not cli.pid_path().exists()
+    assert not ipc.port_file().exists()
 
 
 def test_choose_uses_configured_style_and_prints_fallback_notes(monkeypatch, capsys):
@@ -229,13 +258,21 @@ def test_claude_on_refuses_invalid_json(claude_dir, capsys):
     assert "settings.json" in capsys.readouterr().err
 
 
-def test_event_signals_running_buddy(monkeypatch):
-    monkeypatch.setattr(cli, "read_pid", lambda: 4242)
-    sent = []
-    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: sent.append((pid, sig)))
+def test_event_reaches_the_running_buddy(live_buddy):
     assert cli.main(["event", "thinking"]) == 0
     assert cli.main(["event", "done"]) == 0
-    assert sent == [(4242, signal.SIGUSR1), (4242, signal.SIGUSR2)]
+    deadline = time.monotonic() + 2
+    while len(live_buddy) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert live_buddy == ["thinking", "done"]
+
+
+def test_event_does_not_import_heavy_libraries():
+    import subprocess
+
+    code = "import sys; from buddy import cli; cli.main(['event', 'done']); print(sorted(m for m in ('PIL', 'PySide6') if m in sys.modules))"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30).stdout
+    assert out.strip() == "[]"
 
 
 def test_event_without_running_buddy_is_silent(capsys):
@@ -245,16 +282,6 @@ def test_event_without_running_buddy_is_silent(capsys):
 
 
 # --- review fixes ---------------------------------------------------------------
-
-
-def test_lookalike_process_is_not_mistaken_for_buddy():
-    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", "buddy", "run"])  # e.g. `uv run buddy`
-    try:
-        cli.pid_path().write_text(str(other.pid))
-        assert cli.read_pid() is None
-    finally:
-        other.kill()
-        other.wait()
 
 
 def test_run_with_invalid_config_keeps_the_chosen_pokemon(monkeypatch, capsys):
@@ -269,13 +296,10 @@ def test_run_with_invalid_config_keeps_the_chosen_pokemon(monkeypatch, capsys):
     assert "scale" in capsys.readouterr().err
 
 
-def test_config_command_warns_when_sprite_is_not_downloaded(monkeypatch, capsys):
+def test_config_command_warns_when_sprite_is_not_downloaded(monkeypatch, capsys, sent):
     monkeypatch.setenv("EDITOR", "true")
     monkeypatch.delenv("VISUAL", raising=False)
     config.save(config.Config(pokemon="eevee"))
-    sent = []
-    monkeypatch.setattr(cli, "read_pid", lambda: 4242)
-    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: sent.append(sig))
     assert cli.main(["config"]) == 1
     out, err = capsys.readouterr()
     assert "buddy choose eevee" in err

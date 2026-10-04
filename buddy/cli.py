@@ -1,33 +1,35 @@
-"""Command line: buddy run | choose | autostart | config | stop."""
+"""Command line: buddy run | stop | choose | config | autostart | agents | guide."""
 import argparse
 import json
 import os
+import plistlib
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import Callable
 
-from buddy import config, sprites
+from buddy import config, ipc
+
+# `buddy event` runs on every AI-agent prompt, so heavy modules (sprites → Pillow, window → Qt)
+# are imported inside the commands that need them.
 
 DESKTOP_ENTRY = """[Desktop Entry]
 Type=Application
 Name=Buddy
 Comment=Pokémon desktop buddy
-Exec=env GDK_BACKEND=x11 "{exe}" run
+Exec="{exe}" run
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=5
 NoDisplay=true
 """
-
-
-EVENT_SIGNALS = {"thinking": signal.SIGUSR1, "done": signal.SIGUSR2}
+MAC_AGENT_LABEL = "com.buddy.pet"
+WINDOWS_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+EVENTS = ("thinking", "done")
 
 
 @dataclass(frozen=True)
@@ -70,60 +72,51 @@ AGENTS = {
 }
 
 
-def pid_path() -> Path:
-    return Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / "buddy.pid"
-
-
-def autostart_path() -> Path:
-    base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    return base / "autostart" / "buddy.desktop"
+def _platform() -> str:
+    return sys.platform
 
 
 def buddy_executable() -> str:
-    return str(Path(sys.argv[0]).resolve())
+    exe = Path(sys.argv[0]).resolve()
+    if _platform().startswith("win") and not exe.exists() and exe.with_suffix(".exe").exists():
+        exe = exe.with_suffix(".exe")
+    return str(exe)
 
 
-def _is_buddy_process(pid: int) -> bool:
-    try:
-        args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-    except OSError:
-        return False
-    args = [os.fsdecode(arg) for arg in args if arg]
-    # The console script runs as: <python> <path>/buddy run
-    return len(args) >= 3 and Path(args[1]).name == "buddy" and args[2] == "run"
+def gui_executable() -> str:
+    """On Windows, `buddyw.exe` starts buddy without a console window."""
+    exe = Path(buddy_executable())
+    gui = exe.with_name("buddyw.exe")
+    return str(gui) if gui.exists() else str(exe)
 
 
-def read_pid() -> int | None:
-    try:
-        pid = int(pid_path().read_text().strip())
-    except (OSError, ValueError):
-        return None
-    return pid if _is_buddy_process(pid) else None
+def autostart_path() -> Path | None:
+    platform = _platform()
+    if platform.startswith("win"):
+        return None  # Windows uses the registry
+    if platform == "darwin":
+        return Path.home() / "Library" / "LaunchAgents" / f"{MAC_AGENT_LABEL}.plist"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "autostart" / "buddy.desktop"
 
 
-def _signal_running(sig: int) -> bool:
-    pid = read_pid()
-    if pid is None:
-        return False
-    try:
-        os.kill(pid, sig)
-    except ProcessLookupError:
-        return False
-    return True
+def _set_windows_autostart(command: str | None) -> None:
+    import winreg
 
-
-def _remove_own_pid() -> None:
-    try:
-        if pid_path().read_text().strip() == str(os.getpid()):
-            pid_path().unlink()
-    except OSError:
-        pass
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, WINDOWS_RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+        if command is None:
+            try:
+                winreg.DeleteValue(key, "Buddy")
+            except FileNotFoundError:
+                pass
+        else:
+            winreg.SetValueEx(key, "Buddy", 0, winreg.REG_SZ, command)
 
 
 def cmd_run(args) -> int:
-    pid = read_pid()
-    if pid is not None:
-        print(f"Buddy is already running (pid {pid}).")
+    from buddy import sprites
+
+    if ipc.is_running():
+        print("Buddy is already running.")
         return 1
     try:
         cfg = config.load()
@@ -135,21 +128,20 @@ def cmd_run(args) -> int:
     except sprites.SpriteError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
-    os.environ["GDK_BACKEND"] = "x11"  # must happen before GTK is imported
+    if _platform().startswith("linux") and os.environ.get("WAYLAND_DISPLAY"):
+        # GNOME's Wayland won't let apps stay on top or place themselves; XWayland does.
+        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     try:
         from buddy import window
     except ImportError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
-
-    pid_path().write_text(str(os.getpid()))
-    try:
-        return window.run(cfg, cached)
-    finally:
-        _remove_own_pid()
+    return window.run(cfg, cached)
 
 
 def cmd_choose(args) -> int:
+    from buddy import sprites
+
     try:
         cfg = config.load()
     except config.ConfigError as e:
@@ -173,7 +165,7 @@ def cmd_choose(args) -> int:
         print(note)
     cfg.pokemon = canonical
     config.save(cfg)
-    if _signal_running(signal.SIGHUP):
+    if ipc.send("reload"):
         print(f"Switched to {canonical}!")
     else:
         print(f"Saved {canonical}. Start it with: buddy run")
@@ -181,24 +173,46 @@ def cmd_choose(args) -> int:
 
 
 def cmd_autostart(args) -> int:
-    path = autostart_path()
-    if args.state == "on":
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(DESKTOP_ENTRY.format(exe=buddy_executable()))
-        print(f"Buddy will start at login ({path}).")
+    on = args.state == "on"
+    platform = _platform()
+    if platform.startswith("win"):
+        _set_windows_autostart(f'"{Path(gui_executable()).as_posix()}" run' if on else None)
     else:
-        path.unlink(missing_ok=True)
-        print("Buddy will no longer start at login.")
+        path = autostart_path()
+        if on:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if platform == "darwin":
+                agent = {"Label": MAC_AGENT_LABEL, "ProgramArguments": [buddy_executable(), "run"], "RunAtLoad": True}
+                path.write_bytes(plistlib.dumps(agent))
+            else:
+                path.write_text(DESKTOP_ENTRY.format(exe=buddy_executable()))
+        else:
+            path.unlink(missing_ok=True)
+    print("Buddy will start at login." if on else "Buddy will no longer start at login.")
     return 0
 
 
+def _default_editor() -> list[str] | None:
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if editor:
+        return shlex.split(editor)
+    platform = _platform()
+    if platform.startswith("win"):
+        return ["notepad"]
+    if platform == "darwin":
+        return ["open", "-W", "-t"]  # TextEdit; waits until it's closed
+    return ["nano"] if shutil.which("nano") else None
+
+
 def cmd_config(args) -> int:
+    from buddy import sprites
+
     path = config.config_path()
     if not path.exists():
         config.save(config.Config(), path)
-    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or ("nano" if shutil.which("nano") else None)
+    editor = _default_editor()
     if editor:
-        subprocess.call([*shlex.split(editor), str(path)])
+        subprocess.call([*editor, str(path)])
     else:
         print(f"Settings file: {path}")
     try:
@@ -212,19 +226,17 @@ def cmd_config(args) -> int:
         print(f"buddy: settings are valid, but {e}", file=sys.stderr)
         return 1
     print("Config OK.")
-    if _signal_running(signal.SIGHUP):
+    if ipc.send("reload"):
         print("Buddy reloaded.")
     return 0
 
 
 def cmd_stop(args) -> int:
-    pid = read_pid()
-    if pid is None:
+    if not ipc.send("quit"):
         print("Buddy is not running.")
         return 1
-    os.kill(pid, signal.SIGTERM)
     for _ in range(30):
-        if read_pid() != pid:
+        if not ipc.is_running():
             break
         time.sleep(0.1)
     print("Buddy stopped.")
@@ -266,7 +278,7 @@ def _without_buddy_hooks(settings: dict) -> dict:
 
 
 def _buddy_hook(agent: Agent, event: str) -> dict:
-    command = f'"{buddy_executable()}" event {event}' + (" --json" if agent.json_output else "")
+    command = f'"{Path(buddy_executable()).as_posix()}" event {event}' + (" --json" if agent.json_output else "")
     hook = {"type": "command", "command": command, "timeout": agent.timeout}
     return {"name": f"buddy-{event}", **hook} if agent.json_output else hook
 
@@ -338,7 +350,7 @@ def _write_with_mode(path: Path, text: str, mode: int) -> None:
 def cmd_event(args) -> int:
     """Called by AI agent hooks: must never fail or print anything but `{}` (Gemini wants JSON)."""
     try:
-        _signal_running(EVENT_SIGNALS[args.name])
+        ipc.send(args.name)
     except Exception:
         pass
     if args.json:
@@ -371,7 +383,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("names", nargs="*", choices=sorted(AGENTS), metavar="agent", help="default: all installed")
     p.set_defaults(func=cmd_agents)
     p = sub.add_parser("event", help="used by AI agent hooks")
-    p.add_argument("name", choices=sorted(EVENT_SIGNALS))
+    p.add_argument("name", choices=EVENTS)
     p.add_argument("--json", action="store_true", help="print {} (for Gemini CLI)")
     p.set_defaults(func=cmd_event)
     sub.add_parser("guide", help="show the full guide").set_defaults(func=cmd_guide)
