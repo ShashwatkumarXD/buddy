@@ -23,6 +23,7 @@ from buddy.config import Config  # noqa: E402
 from buddy.matrix import PANEL_H, PANEL_W, MatrixRain  # noqa: E402
 from buddy.monitor import StressMonitor  # noqa: E402
 from buddy.safety import keep_alive  # noqa: E402
+from buddy.timing import bubble_durations, frame_at  # noqa: E402
 
 WINDOW_MODE = "normal"  # "normal" | "dock" | "popup" — chosen by the Task 1 spike
 FPS = 30
@@ -76,13 +77,23 @@ def bubble_scale(sprite_scale: float) -> float:
     return max(1.0, sprite_scale / 2)
 
 
-def _load_bubbles(factor: float) -> dict[Bubble, GdkPixbuf.Pixbuf]:
+def _load_bubbles(factor: float) -> dict[Bubble, list[GdkPixbuf.Pixbuf]]:
+    """Each bubble's frames: `<name>.png`, then any `<name>_1.png`, `<name>_2.png`… (an animation)."""
+    folder = resources.files("buddy") / "assets" / "bubbles"
     bubbles = {}
     for bubble in Bubble:
-        ref = resources.files("buddy") / "assets" / "bubbles" / f"{bubble.value}.png"
-        with resources.as_file(ref) as path:
-            pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
-            bubbles[bubble] = pb.scale_simple(round(pb.get_width() * factor), round(pb.get_height() * factor), GdkPixbuf.InterpType.NEAREST)
+        frames = []
+        names = [f"{bubble.value}.png"] + [f"{bubble.value}_{i}.png" for i in range(1, 10)]
+        for name in names:
+            ref = folder / name
+            if not ref.is_file():
+                break
+            with resources.as_file(ref) as path:
+                pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
+            frames.append(
+                pb.scale_simple(round(pb.get_width() * factor), round(pb.get_height() * factor), GdkPixbuf.InterpType.NEAREST)
+            )
+        bubbles[bubble] = frames
     return bubbles
 
 
@@ -122,6 +133,8 @@ class BuddyWindow(Gtk.Window):
         self.monitor = StressMonitor(cfg.stress)
         self.brain = Brain(self._bounds(), self.sprite.width, self.sprite.height, cfg.walk_speed)
         self._moved_to = None
+        self._bubble_shown = None
+        self._bubble_ms = 0.0
         self._layout()
 
         screen = self.get_screen()
@@ -149,7 +162,7 @@ class BuddyWindow(Gtk.Window):
         s = self.sprite
         self.sprite_off_x = PANEL_W + MARGIN
         self.win_w = s.width + 2 * (PANEL_W + MARGIN)
-        bubble_h = max(pb.get_height() for pb in self.bubbles.values())
+        bubble_h = max(pb.get_height() for frames in self.bubbles.values() for pb in frames)
         self.win_h = max(bubble_h + MARGIN + s.height, PANEL_H)
         self.sprite_off_y = self.win_h - s.height
         self.panel_y = self.win_h - PANEL_H
@@ -172,6 +185,9 @@ class BuddyWindow(Gtk.Window):
         now = time.monotonic()
         dt, self._last = now - self._last, now
         self.brain.tick(dt)
+        bubble = self.brain.bubble
+        self._bubble_ms = self._bubble_ms + dt * 1000 if bubble is self._bubble_shown else 0.0
+        self._bubble_shown = bubble
         self.sprite.play("walk" if self.brain.moving else "idle")
         self.sprite.advance(min(dt, 0.1) * 1000)
         if self.brain.stressed:
@@ -198,7 +214,8 @@ class BuddyWindow(Gtk.Window):
         cr.paint()
         bubble = b.bubble
         if bubble is not None:
-            pb = self.bubbles[bubble]
+            frames = self.bubbles[bubble]
+            pb = frames[frame_at(self._bubble_ms, bubble_durations(len(frames)))]
             bx = self.sprite_off_x + (self.sprite.width - pb.get_width()) // 2
             by = self.sprite_off_y - pb.get_height() - MARGIN
             Gdk.cairo_set_source_pixbuf(cr, pb, bx, by)

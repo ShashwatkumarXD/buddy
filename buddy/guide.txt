@@ -51,7 +51,7 @@ CLAUDE CODE
 -----------
 After `buddy claude on` (the installer offers this when it finds `claude`):
   You send a prompt       it hurries to a spot near the right of the screen and
-                          shows its thinking bubble 📖❓ while Claude works
+                          shows its thinking bubble (a book flipping its pages)
   Claude finishes         ❗ bubble and three hops on the spot, then back to wandering
   You stop Claude early   it gives up thinking after 10 minutes, or at your next prompt
 Restart open Claude Code sessions after turning this on or off.

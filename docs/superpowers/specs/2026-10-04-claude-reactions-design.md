@@ -42,8 +42,11 @@ the pet thinks (stands at the spot) and the Matrix panel still shows.
 
 ## Assets
 
-User-supplied pixel art: `exclaim.png` (!), `thinking.png` (book + ?), converted to native
-pixel size (40 px wide) like the other bubbles.
+User-supplied pixel art: `exclaim.png` (!) and the cloud of `thinking.png`, converted to native
+pixel size (40 px wide) like the other bubbles. At the user's request the thinking bubble shows only
+an open book, redrawn as pixel art by `tools/make_thinking_bubble.py`, which also writes
+`thinking_1..3.png`: a page lifting, standing up and landing. Any bubble with `<name>_N.png`
+frames animates: first frame held 700 ms, then 110 ms per frame, looping (`buddy/timing.py`).
 
 ## Testing
 
