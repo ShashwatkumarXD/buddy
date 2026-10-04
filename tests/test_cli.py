@@ -149,7 +149,7 @@ def test_choose_uses_configured_style_and_prints_fallback_notes(monkeypatch, cap
 def test_guide_covers_every_command_and_setting(capsys):
     assert cli.main(["guide"]) == 0
     out = capsys.readouterr().out
-    for command in ("run", "stop", "choose", "config", "autostart on", "autostart off", "claude on", "claude off", "guide"):
+    for command in ("run", "stop", "choose", "config", "autostart on", "autostart off", "agents on", "agents off", "claude on", "claude off", "guide"):
         assert f"buddy {command}" in out
     for setting in ("pokemon", "style", "scale", "walk_speed", "cpu_enter", "ram_enter", "cpu_exit", "ram_exit", "window_seconds"):
         assert setting in out
@@ -300,3 +300,78 @@ def test_claude_on_writes_through_a_symlinked_settings_file(claude_dir, tmp_path
     assert cli.main(["claude", "on"]) == 0
     assert (claude_dir / "settings.json").is_symlink()
     assert "event thinking" in real.read_text()
+
+
+# --- other AI agents (Gemini CLI, Codex) -------------------------------------------
+
+
+@pytest.fixture
+def agent_home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.setattr(cli, "buddy_executable", lambda: "/opt/buddy/bin/buddy")
+    return home
+
+
+def installed(monkeypatch, *names):
+    monkeypatch.setattr(cli.shutil, "which", lambda name: f"/usr/bin/{name}" if name in names else None)
+
+
+def test_gemini_hooks_use_before_and_after_agent_with_json_output(agent_home):
+    assert cli.main(["agents", "on", "gemini"]) == 0
+    settings = json.loads((agent_home / ".gemini" / "settings.json").read_text())
+    before = settings["hooks"]["BeforeAgent"][0]["hooks"][0]
+    after = settings["hooks"]["AfterAgent"][0]["hooks"][0]
+    assert before["command"] == '"/opt/buddy/bin/buddy" event thinking --json'
+    assert after["command"] == '"/opt/buddy/bin/buddy" event done --json'
+    assert before["type"] == "command" and before["timeout"] == 5000  # Gemini timeouts are milliseconds
+    assert before["name"] == "buddy-thinking"
+
+
+def test_codex_hooks_go_in_hooks_json(agent_home):
+    assert cli.main(["agents", "on", "codex"]) == 0
+    settings = json.loads((agent_home / ".codex" / "hooks.json").read_text())
+    assert settings["hooks"]["UserPromptSubmit"][0]["hooks"][0] == {
+        "type": "command",
+        "command": '"/opt/buddy/bin/buddy" event thinking',
+        "timeout": 5,
+    }
+    assert settings["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("event done")
+
+
+def test_agents_on_sets_up_every_installed_agent(agent_home, monkeypatch, capsys):
+    installed(monkeypatch, "claude", "codex")
+    assert cli.main(["agents", "on"]) == 0
+    assert (agent_home / ".claude" / "settings.json").exists()
+    assert (agent_home / ".codex" / "hooks.json").exists()
+    assert not (agent_home / ".gemini").exists()
+    out = capsys.readouterr().out
+    assert "Claude Code" in out and "Codex" in out
+
+
+def test_agents_on_with_nothing_installed_says_so(agent_home, monkeypatch, capsys):
+    installed(monkeypatch)
+    assert cli.main(["agents", "on"]) == 0
+    assert "No supported AI agent" in capsys.readouterr().out
+
+
+def test_agents_off_removes_buddy_from_every_agent(agent_home, monkeypatch):
+    installed(monkeypatch, "claude", "gemini", "codex")
+    cli.main(["agents", "on"])
+    assert cli.main(["agents", "off"]) == 0
+    for path in (".claude/settings.json", ".gemini/settings.json", ".codex/hooks.json"):
+        assert buddy_commands(json.loads((agent_home / path).read_text())) == []
+
+
+def test_codex_home_is_respected(agent_home, tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    cli.main(["agents", "on", "codex"])
+    assert (tmp_path / "codex-home" / "hooks.json").exists()
+
+
+def test_event_json_prints_an_empty_object_for_gemini(capsys):
+    assert cli.main(["event", "thinking", "--json"]) == 0
+    assert capsys.readouterr() == ("{}\n", "")

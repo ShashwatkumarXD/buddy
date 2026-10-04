@@ -54,7 +54,17 @@ Brain: walk to spot, thinking bubble, done → ! + exactly 3 hops → wander, dr
 10-min timeout, stress while thinking, priority. CLI: hooks added/merged/idempotent/removed,
 invalid JSON untouched, backup written, `event` signals or no-ops. Window: manual.
 
+## Other agents (added 2026-10-04)
+
+`buddy agents on|off [claude|gemini|codex]` (default: every agent on PATH when turning on, every
+agent with a settings file when turning off); `buddy claude on|off` stays as a shortcut.
+- Gemini CLI: `~/.gemini/settings.json`, `BeforeAgent` / `AfterAgent`, timeout in ms (5000), a
+  `name` per hook, and `buddy event … --json` because Gemini parses hook stdout as JSON (prints `{}`).
+- Codex: `$CODEX_HOME/hooks.json` (default `~/.codex`), `UserPromptSubmit` / `Stop`, same shape as
+  Claude; Codex asks the user to approve new hooks once via `/hooks`.
+The installer asks once for all detected agents.
+
 ## Out of scope
 
-Other AI CLIs, multiple concurrent Claude sessions (last event wins), reacting to permission
+Agents without prompt-start hooks (e.g. Aider), multiple concurrent Claude sessions (last event wins), reacting to permission
 prompts.

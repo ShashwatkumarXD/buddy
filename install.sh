@@ -23,15 +23,20 @@ ln -sf "$BUDDY" "$HOME/.local/bin/buddy"
 if [ $# -ge 1 ]; then "$BUDDY" choose "$1"; else "$BUDDY" choose; fi
 "$BUDDY" autostart on
 
-if command -v claude >/dev/null; then
+found=""
+command -v claude >/dev/null && found="$found, Claude Code"
+command -v gemini >/dev/null && found="$found, Gemini CLI"
+command -v codex >/dev/null && found="$found, Codex"
+found="${found#, }"
+if [ -n "$found" ]; then
     if [ -t 0 ]; then
-        read -r -p "Found Claude Code. Let your buddy react to it? [Y/n] " answer || answer=n
+        read -r -p "Found $found. Let your buddy react to them? [Y/n] " answer || answer=n
         case "${answer:-y}" in
-            [Yy]*) "$BUDDY" claude on || echo "Couldn't set up Claude Code reactions; try later with: buddy claude on" ;;
-            *) echo "Skipped. Turn it on later with: buddy claude on" ;;
+            [Yy]*) "$BUDDY" agents on || echo "Couldn't set up every agent; try later with: buddy agents on" ;;
+            *) echo "Skipped. Turn it on later with: buddy agents on" ;;
         esac
     else
-        echo "Found Claude Code. To let your buddy react to it, run: buddy claude on"
+        echo "Found $found. To let your buddy react to them, run: buddy agents on"
     fi
 fi
 "$BUDDY" stop >/dev/null 2>&1 || true
@@ -42,7 +47,7 @@ echo "Buddy is running! Commands:"
 echo "  buddy choose <name>    switch Pokémon"
 echo "  buddy config           edit thresholds, size, speed"
 echo "  buddy autostart off    don't start at login"
-echo "  buddy claude on|off    react to Claude Code"
+echo "  buddy agents on|off    react to Claude Code / Gemini CLI / Codex"
 echo "  buddy guide            everything else"
 echo "  buddy stop / buddy run"
 case ":$PATH:" in

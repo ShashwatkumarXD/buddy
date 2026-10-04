@@ -9,8 +9,10 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
+from typing import Callable
 
 from buddy import config, sprites
 
@@ -25,7 +27,47 @@ NoDisplay=true
 """
 
 
-CLAUDE_EVENTS = {"thinking": ("UserPromptSubmit", signal.SIGUSR1), "done": ("Stop", signal.SIGUSR2)}
+EVENT_SIGNALS = {"thinking": signal.SIGUSR1, "done": signal.SIGUSR2}
+
+
+@dataclass(frozen=True)
+class Agent:
+    """An AI coding CLI whose hooks can run `buddy event thinking|done`."""
+
+    key: str
+    title: str
+    settings: Callable[[], Path]
+    events: dict[str, str]  # buddy event -> the agent's hook event
+    timeout: int  # in the agent's own unit
+    json_output: bool = False  # hook stdout must be JSON (Gemini)
+    note: str = ""
+
+
+AGENTS = {
+    "claude": Agent(
+        "claude",
+        "Claude Code",
+        lambda: Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "settings.json",
+        {"thinking": "UserPromptSubmit", "done": "Stop"},
+        timeout=5,
+    ),
+    "gemini": Agent(
+        "gemini",
+        "Gemini CLI",
+        lambda: Path.home() / ".gemini" / "settings.json",
+        {"thinking": "BeforeAgent", "done": "AfterAgent"},
+        timeout=5000,
+        json_output=True,
+    ),
+    "codex": Agent(
+        "codex",
+        "Codex",
+        lambda: Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "hooks.json",
+        {"thinking": "UserPromptSubmit", "done": "Stop"},
+        timeout=5,
+        note="Approve the new hooks once with /hooks inside Codex.",
+    ),
+}
 
 
 def pid_path() -> Path:
@@ -190,13 +232,12 @@ def cmd_stop(args) -> int:
 
 
 def claude_settings_path() -> Path:
-    base = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-    return base / "settings.json"
+    return AGENTS["claude"].settings()
 
 
 def _is_buddy_hook(hook) -> bool:
     command = hook.get("command", "") if isinstance(hook, dict) else ""
-    return "buddy" in command and command.endswith((" event thinking", " event done"))
+    return "buddy" in command and command.removesuffix(" --json").endswith((" event thinking", " event done"))
 
 
 def _without_buddy_hooks(settings: dict) -> dict:
@@ -224,10 +265,17 @@ def _without_buddy_hooks(settings: dict) -> dict:
     return settings
 
 
-def cmd_claude(args) -> int:
-    path = claude_settings_path()
-    if args.state == "off" and not path.exists():
-        print("Buddy no longer reacts to Claude Code.")
+def _buddy_hook(agent: Agent, event: str) -> dict:
+    command = f'"{buddy_executable()}" event {event}' + (" --json" if agent.json_output else "")
+    hook = {"type": "command", "command": command, "timeout": agent.timeout}
+    return {"name": f"buddy-{event}", **hook} if agent.json_output else hook
+
+
+def set_agent_hooks(agent: Agent, enable: bool) -> int:
+    """Add or remove buddy's hooks in one agent's settings file, leaving everything else alone."""
+    path = agent.settings()
+    if not enable and not path.exists():
+        print(f"{agent.title}: buddy no longer reacts.")
         return 0
     try:
         text = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -240,26 +288,43 @@ def cmd_claude(args) -> int:
     target = path.resolve() if path.exists() else path  # write through a dotfiles symlink
     mode = target.stat().st_mode & 0o777 if target.exists() else 0o600  # may hold API keys
     settings = _without_buddy_hooks(settings)
-    if args.state == "on":
+    if enable:
         if text:
             _write_with_mode(path.with_name(path.name + ".buddy-backup"), text, mode)
         hooks = settings.setdefault("hooks", {})
-        exe = buddy_executable()
-        for name, (claude_event, _) in CLAUDE_EVENTS.items():
-            groups = hooks.setdefault(claude_event, [])
+        for event, agent_event in agent.events.items():
+            groups = hooks.setdefault(agent_event, [])
             if not isinstance(groups, list):
-                print(f"buddy: unexpected '{claude_event}' hooks in {path}; left it unchanged.", file=sys.stderr)
+                print(f"buddy: unexpected '{agent_event}' hooks in {path}; left it unchanged.", file=sys.stderr)
                 return 1
-            groups.append({"hooks": [{"type": "command", "command": f'"{exe}" event {name}', "timeout": 5}]})
-        message = "Buddy will react to Claude Code. Restart open Claude Code sessions to pick this up."
+            groups.append({"hooks": [_buddy_hook(agent, event)]})
+        message = f"{agent.title}: buddy will react. Restart open {agent.title} sessions to pick this up. {agent.note}"
     else:
-        message = "Buddy no longer reacts to Claude Code."
+        message = f"{agent.title}: buddy no longer reacts."
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".buddy-tmp")
     _write_with_mode(tmp, json.dumps(settings, indent=2) + "\n", mode)
     tmp.replace(target)
-    print(message)
+    print(message.strip())
     return 0
+
+
+def cmd_claude(args) -> int:
+    return set_agent_hooks(AGENTS["claude"], args.state == "on")
+
+
+def cmd_agents(args) -> int:
+    if args.names:
+        agents = [AGENTS[name] for name in args.names]
+    elif args.state == "on":
+        agents = [agent for agent in AGENTS.values() if shutil.which(agent.key)]
+        if not agents:
+            print("No supported AI agent found (looked for: " + ", ".join(AGENTS) + ").")
+            return 0
+    else:
+        agents = [agent for agent in AGENTS.values() if agent.settings().exists()]
+    results = [set_agent_hooks(agent, args.state == "on") for agent in agents]
+    return 1 if any(results) else 0
 
 
 def _write_with_mode(path: Path, text: str, mode: int) -> None:
@@ -271,11 +336,13 @@ def _write_with_mode(path: Path, text: str, mode: int) -> None:
 
 
 def cmd_event(args) -> int:
-    """Called by Claude Code hooks: must stay silent and always succeed."""
+    """Called by AI agent hooks: must never fail or print anything but `{}` (Gemini wants JSON)."""
     try:
-        _signal_running(CLAUDE_EVENTS[args.name][1])
+        _signal_running(EVENT_SIGNALS[args.name])
     except Exception:
         pass
+    if args.json:
+        print("{}")
     return 0
 
 
@@ -299,8 +366,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("claude", help="react to Claude Code (adds/removes its hooks)")
     p.add_argument("state", choices=["on", "off"])
     p.set_defaults(func=cmd_claude)
-    p = sub.add_parser("event", help="used by Claude Code hooks")
-    p.add_argument("name", choices=sorted(CLAUDE_EVENTS))
+    p = sub.add_parser("agents", help="react to AI agents: Claude Code, Gemini CLI, Codex")
+    p.add_argument("state", choices=["on", "off"])
+    p.add_argument("names", nargs="*", choices=sorted(AGENTS), metavar="agent", help="default: all installed")
+    p.set_defaults(func=cmd_agents)
+    p = sub.add_parser("event", help="used by AI agent hooks")
+    p.add_argument("name", choices=sorted(EVENT_SIGNALS))
+    p.add_argument("--json", action="store_true", help="print {} (for Gemini CLI)")
     p.set_defaults(func=cmd_event)
     sub.add_parser("guide", help="show the full guide").set_defaults(func=cmd_guide)
     args = parser.parse_args(argv)
