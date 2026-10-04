@@ -1,33 +1,77 @@
-"""Transparent always-on-top GTK3 window that draws the buddy. Runs under XWayland."""
+"""Buddy on screen (Qt): works on Linux (through XWayland on Wayland), macOS and Windows.
+
+Two frameless, always-on-top tool windows that never take focus:
+- the *pet* window is exactly the sprite's size and receives the mouse;
+- the *decor* window draws the reaction bubble and stress panel and lets clicks through.
+(Qt can't make only part of one window click-through, hence two windows moving together.)
+"""
+import ctypes
+import ctypes.util
+import os
 import signal
 import sys
 import time
 from importlib import resources
+from pathlib import Path
 
-import cairo
-import gi
+from PySide6.QtCore import QRect, Qt, QTimer
+from PySide6.QtGui import QGuiApplication, QImage, QPainter, QPixmap, QTransform
+from PySide6.QtWidgets import QApplication, QWidget
 
-try:
-    gi.require_foreign("cairo")
-except ImportError:
-    raise ImportError("GTK's cairo bindings are missing. Install them with: sudo apt install python3-gi-cairo") from None
-gi.require_version("Gtk", "3.0")
-gi.require_version("Gdk", "3.0")
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
+from buddy import config as config_mod
+from buddy import ipc, sprites
+from buddy.brain import Bounds, Brain, Bubble
+from buddy.config import Config
+from buddy.matrix import PANEL_H, PANEL_W, MatrixRain
+from buddy.monitor import StressMonitor
+from buddy.safety import keep_alive
+from buddy.timing import bubble_durations, frame_at
 
-from buddy import config as config_mod  # noqa: E402
-from buddy import sprites  # noqa: E402
-from buddy.brain import Bounds, Brain, Bubble  # noqa: E402
-from buddy.config import Config  # noqa: E402
-from buddy.matrix import PANEL_H, PANEL_W, MatrixRain  # noqa: E402
-from buddy.monitor import StressMonitor  # noqa: E402
-from buddy.safety import keep_alive  # noqa: E402
-from buddy.timing import bubble_durations, frame_at  # noqa: E402
-
-WINDOW_MODE = "normal"  # "normal" | "dock" | "popup" — chosen by the Task 1 spike
 FPS = 30
 MARGIN = 4
+WINDOW_FLAGS = (
+    Qt.WindowType.FramelessWindowHint
+    | Qt.WindowType.WindowStaysOnTopHint
+    | Qt.WindowType.Tool
+    | Qt.WindowType.WindowDoesNotAcceptFocus
+    | Qt.WindowType.NoDropShadowWindowHint
+)
+# Qt's X11 platform plugin needs these system libraries (Debian/Ubuntu package names).
+X11_LIBRARIES = {
+    "xcb-cursor": "libxcb-cursor0",
+    "xkbcommon-x11": "libxkbcommon-x11-0",
+    "xcb-icccm": "libxcb-icccm4",
+    "xcb-image": "libxcb-image0",
+    "xcb-keysyms": "libxcb-keysyms1",
+    "xcb-render-util": "libxcb-render-util0",
+    "xcb-xkb": "libxcb-xkb1",
+}
+
+
+def _find_library(name: str) -> str | None:
+    return ctypes.util.find_library(name)
+
+
+def missing_x11_libraries() -> list[str]:
+    """Debian/Ubuntu packages Qt needs on X11/XWayland that aren't installed."""
+    return [package for lib, package in X11_LIBRARIES.items() if _find_library(lib) is None]
+
+
+def bubble_scale(sprite_scale: float) -> float:
+    """Enlargement for the 40x32 pixel-art bubbles: half the Pokémon's scale, never below native size."""
+    return max(1.0, sprite_scale / 2)
+
+
+def _scaled_image(path: Path, factor: float) -> QImage:
+    image = QImage(str(path))
+    if image.isNull():
+        raise sprites.SpriteError(f"Unreadable image {path}")
+    return image.scaled(
+        round(image.width() * factor),
+        round(image.height() * factor),
+        Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.FastTransformation,  # nearest neighbour keeps pixel art crisp
+    )
 
 
 class Sprite:
@@ -36,20 +80,18 @@ class Sprite:
     def __init__(self, cached: sprites.CachedSprite, scale: float):
         self.faces = cached.faces
         self.anims = {}
+        mirror = QTransform().scale(-1, 1)
         for key, frames in cached.anims.items():
             native, mirrored, durations = [], [], []
             for path, ms in frames:
-                pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
-                pb = pb.scale_simple(
-                    round(pb.get_width() * scale), round(pb.get_height() * scale), GdkPixbuf.InterpType.NEAREST
-                )
-                native.append(pb)
-                mirrored.append(pb.flip(True))
-                durations.append(ms)
+                image = _scaled_image(path, scale)
+                native.append(QPixmap.fromImage(image))
+                mirrored.append(QPixmap.fromImage(image.transformed(mirror)))
+                durations.append(max(20, ms))
             self.anims[key] = (native, mirrored, durations)
         first = self.anims["walk"][0][0]
-        self.width = first.get_width()
-        self.height = first.get_height()
+        self.width = first.width()
+        self.height = first.height()
         self.current = "idle"
         self.index = 0
         self._elapsed = 0.0
@@ -67,121 +109,150 @@ class Sprite:
             self._elapsed -= durations[self.index]
             self.index = (self.index + 1) % len(durations)
 
-    def frame(self, facing: int) -> GdkPixbuf.Pixbuf:
+    def frame(self, facing: int) -> QPixmap:
         native, mirrored, _ = self.anims[self.current]
         return (native if facing == self.faces else mirrored)[self.index]
 
 
-def bubble_scale(sprite_scale: float) -> float:
-    """Enlargement for the 40x32 pixel-art bubbles: half the Pokémon's scale, never below native size."""
-    return max(1.0, sprite_scale / 2)
-
-
-def _load_bubbles(factor: float) -> dict[Bubble, list[GdkPixbuf.Pixbuf]]:
+def _load_bubbles(factor: float) -> dict[Bubble, list[QPixmap]]:
     """Each bubble's frames: `<name>.png`, then any `<name>_1.png`, `<name>_2.png`… (an animation)."""
     folder = resources.files("buddy") / "assets" / "bubbles"
     bubbles = {}
     for bubble in Bubble:
         frames = []
-        names = [f"{bubble.value}.png"] + [f"{bubble.value}_{i}.png" for i in range(1, 10)]
-        for name in names:
+        for name in [f"{bubble.value}.png"] + [f"{bubble.value}_{i}.png" for i in range(1, 10)]:
             ref = folder / name
             if not ref.is_file():
                 break
             with resources.as_file(ref) as path:
-                pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
-            frames.append(
-                pb.scale_simple(round(pb.get_width() * factor), round(pb.get_height() * factor), GdkPixbuf.InterpType.NEAREST)
-            )
+                frames.append(QPixmap.fromImage(_scaled_image(path, factor)))
         bubbles[bubble] = frames
     return bubbles
 
 
-class BuddyWindow(Gtk.Window):
-    def __init__(self, cfg: Config, cached: sprites.CachedSprite):
-        super().__init__(type=Gtk.WindowType.POPUP if WINDOW_MODE == "popup" else Gtk.WindowType.TOPLEVEL)
-        visual = self.get_screen().get_rgba_visual()
-        if visual is None:
-            raise RuntimeError("no transparent (RGBA) visual — is the compositor running?")
-        self.set_visual(visual)
-        self.set_app_paintable(True)
-        self.set_decorated(False)
-        self.set_skip_taskbar_hint(True)
-        self.set_skip_pager_hint(True)
-        self.set_accept_focus(False)
-        self.set_focus_on_map(False)
-        if WINDOW_MODE == "dock":
-            self.set_type_hint(Gdk.WindowTypeHint.DOCK)
-        elif WINDOW_MODE == "normal":
-            self.set_type_hint(Gdk.WindowTypeHint.UTILITY)
-        if WINDOW_MODE != "popup":
-            self.set_keep_above(True)
-            self.stick()
-        self.add_events(
-            Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK | Gdk.EventMask.POINTER_MOTION_MASK
-        )
-        self.connect("draw", self._on_draw)
-        self.connect("button-press-event", self._on_press)
-        self.connect("button-release-event", self._on_release)
-        self.connect("motion-notify-event", self._on_motion)
-        self.connect("destroy", Gtk.main_quit)
+class _Overlay(QWidget):
+    def __init__(self, click_through: bool):
+        flags = WINDOW_FLAGS | (Qt.WindowType.WindowTransparentForInput if click_through else Qt.WindowType.Widget)
+        super().__init__(None, flags)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow)
+        self.setWindowTitle("Buddy")
 
-        self.bubbles = _load_bubbles(bubble_scale(cfg.scale))
-        self.matrix = MatrixRain(PANEL_W, PANEL_H)
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.fillRect(self.rect(), Qt.GlobalColor.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+        self.paint(painter)
+        painter.end()
+
+    def paint(self, painter: QPainter) -> None:
+        raise NotImplementedError
+
+
+class PetWindow(_Overlay):
+    def __init__(self, buddy: "Buddy"):
+        super().__init__(click_through=False)
+        self.buddy = buddy
+
+    def paint(self, painter: QPainter) -> None:
+        painter.drawPixmap(0, 0, self.buddy.sprite.frame(self.buddy.brain.facing))
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            point = event.globalPosition()
+            self.buddy.brain.press(point.x(), point.y())
+
+    def mouseMoveEvent(self, event) -> None:
+        point = event.globalPosition()
+        self.buddy.brain.motion(point.x(), point.y())
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            point = event.globalPosition()
+            self.buddy.brain.release(point.x(), point.y())
+
+
+class DecorWindow(_Overlay):
+    def __init__(self, buddy: "Buddy"):
+        super().__init__(click_through=True)
+        self.buddy = buddy
+
+    def paint(self, painter: QPainter) -> None:
+        self.buddy.paint_decor(painter)
+
+
+class Buddy:
+    """The running buddy: brain, monitor, sprite, the two windows and the IPC listener."""
+
+    def __init__(self, app: QApplication, cfg: Config, cached: sprites.CachedSprite):
+        self.app = app
         self.cfg = cfg
         self.sprite = Sprite(cached, cfg.scale)
+        self.bubbles = _load_bubbles(bubble_scale(cfg.scale))
+        self.matrix = MatrixRain(PANEL_W, PANEL_H)
         self.monitor = StressMonitor(cfg.stress)
         self.brain = Brain(self._bounds(), self.sprite.width, self.sprite.height, cfg.walk_speed)
-        self._moved_to = None
+        self.decor = DecorWindow(self)
+        self.pet = PetWindow(self)
         self._bubble_shown = None
         self._bubble_ms = 0.0
-        self._layout()
-
-        screen = self.get_screen()
-        screen.connect("size-changed", self._on_screen_changed)
-        screen.connect("monitors-changed", self._on_screen_changed)
         self._last = time.monotonic()
-        GLib.timeout_add(1000 // FPS, self._on_tick)
-        GLib.timeout_add_seconds(1, self._on_monitor)
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGHUP, self.reload)
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self._on_claude_thinking)
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, self._on_claude_done)
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self._quit)
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self._quit)
+        self._layout()
+        self.server = ipc.Server()
+        self.server.write_contact()
 
-    # --- geometry --------------------------------------------------------
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            screen.availableGeometryChanged.connect(self._on_screen_changed)
+        app.primaryScreenChanged.connect(self._on_screen_changed)
+        self._timers = []
+        for interval, callback in ((1000 // FPS, self.on_tick), (1000, self.on_monitor), (50, self.on_ipc)):
+            timer = QTimer()
+            timer.timeout.connect(callback)
+            timer.start(interval)
+            self._timers.append(timer)
+
+    # --- geometry -------------------------------------------------------------
 
     def _bounds(self) -> Bounds:
-        display = Gdk.Display.get_default()
-        monitor = display.get_primary_monitor() or display.get_monitor(0)
-        wa = monitor.get_workarea()
-        return Bounds(left=wa.x, top=wa.y, right=wa.x + wa.width, floor=wa.y + wa.height)
+        screen = QGuiApplication.primaryScreen()
+        area = screen.availableGeometry() if screen is not None else QRect(0, 0, 1280, 800)
+        return Bounds(left=area.x(), top=area.y(), right=area.x() + area.width(), floor=area.y() + area.height())
 
     def _layout(self) -> None:
-        """Window = [panel | sprite | panel] wide; bubble row above the sprite; bottoms aligned."""
+        """Decor window = [panel | sprite | panel] wide, bubble row above the sprite; bottoms aligned."""
         s = self.sprite
+        bubble_h = max(pb.height() for frames in self.bubbles.values() for pb in frames)
         self.sprite_off_x = PANEL_W + MARGIN
-        self.win_w = s.width + 2 * (PANEL_W + MARGIN)
-        bubble_h = max(pb.get_height() for frames in self.bubbles.values() for pb in frames)
-        self.win_h = max(bubble_h + MARGIN + s.height, PANEL_H)
-        self.sprite_off_y = self.win_h - s.height
-        self.panel_y = self.win_h - PANEL_H
-        self.set_size_request(self.win_w, self.win_h)
-        self.resize(self.win_w, self.win_h)
-        if self.get_realized():
-            self.update_input_shape()
+        self.decor_w = s.width + 2 * (PANEL_W + MARGIN)
+        self.decor_h = max(bubble_h + MARGIN + s.height, PANEL_H)
+        self.sprite_off_y = self.decor_h - s.height
+        self.panel_y = self.decor_h - PANEL_H
+        self.pet.setFixedSize(s.width, s.height)
+        self.decor.setFixedSize(self.decor_w, self.decor_h)
+        self._place(force=True)
 
-    def update_input_shape(self) -> None:
-        rect = cairo.RectangleInt(self.sprite_off_x, self.sprite_off_y, self.sprite.width, self.sprite.height)
-        self.input_shape_combine_region(cairo.Region(rect))
+    def _place(self, force: bool = False) -> None:
+        x, y = int(self.brain.x), int(self.brain.y)
+        if force or (self.pet.x(), self.pet.y()) != (x, y):
+            self.pet.move(x, y)
+            self.decor.move(x - self.sprite_off_x, y - self.sprite_off_y)
 
+    def show(self) -> None:
+        self.decor.show()
+        self.pet.show()  # shown last so it sits above the decor window
+
+    @keep_alive
     def _on_screen_changed(self, *_):
         self.brain.set_bounds(self._bounds())
 
-    # --- loop ------------------------------------------------------------
+    # --- loop -----------------------------------------------------------------
 
     @keep_alive
-    def _on_tick(self) -> bool:
+    def on_tick(self) -> bool:
         now = time.monotonic()
         dt, self._last = now - self._last, now
         self.brain.tick(dt)
@@ -192,105 +263,128 @@ class BuddyWindow(Gtk.Window):
         self.sprite.advance(min(dt, 0.1) * 1000)
         if self.brain.stressed:
             self.matrix.tick(dt)
-        target = (int(self.brain.x) - self.sprite_off_x, int(self.brain.y) - self.sprite_off_y)
-        if target != self._moved_to:
-            self.move(*target)
-            self._moved_to = target
-        self.queue_draw()
+        self._place()
+        self.pet.update()
+        self.decor.update()
         return True
 
     @keep_alive
-    def _on_monitor(self) -> bool:
+    def on_monitor(self) -> bool:
         self.brain.set_stressed(self.monitor.tick())
         return True
 
-    def _on_draw(self, _widget, cr) -> bool:
-        cr.set_operator(cairo.OPERATOR_SOURCE)
-        cr.set_source_rgba(0, 0, 0, 0)
-        cr.paint()
-        cr.set_operator(cairo.OPERATOR_OVER)
+    @keep_alive
+    def on_ipc(self) -> bool:
+        for command in self.server.poll():
+            if command == "thinking":
+                self.brain.claude_thinking()
+            elif command == "done":
+                self.brain.claude_done()
+            elif command == "reload":
+                self.reload()
+            elif command == "quit":
+                self.app.quit()
+        return True
+
+    def paint_decor(self, painter: QPainter) -> None:
         b = self.brain
-        Gdk.cairo_set_source_pixbuf(cr, self.sprite.frame(b.facing), self.sprite_off_x, self.sprite_off_y)
-        cr.paint()
         bubble = b.bubble
         if bubble is not None:
             frames = self.bubbles[bubble]
             pb = frames[frame_at(self._bubble_ms, bubble_durations(len(frames)))]
-            bx = self.sprite_off_x + (self.sprite.width - pb.get_width()) // 2
-            by = self.sprite_off_y - pb.get_height() - MARGIN
-            Gdk.cairo_set_source_pixbuf(cr, pb, bx, by)
-            cr.paint()
+            bx = self.sprite_off_x + (self.sprite.width - pb.width()) // 2
+            by = self.sprite_off_y - pb.height() - MARGIN
+            painter.drawPixmap(bx, by, pb)
         if b.stressed:
             room_right = b.bounds.right - (b.x + self.sprite.width)
             px = self.sprite_off_x + self.sprite.width + MARGIN if room_right >= PANEL_W + MARGIN else 0
             latest = self.monitor.latest
-            self.matrix.draw(cr, px, self.panel_y, latest.cpu, latest.ram)
-        return False
+            self.matrix.draw(painter, px, self.panel_y, latest.cpu, latest.ram)
 
-    # --- input -----------------------------------------------------------
-
-    def _on_press(self, _widget, event) -> bool:
-        if event.button == 1 and event.type == Gdk.EventType.BUTTON_PRESS:
-            self.brain.press(event.x_root, event.y_root)
-        return True
-
-    def _on_motion(self, _widget, event) -> bool:
-        self.brain.motion(event.x_root, event.y_root)
-        return True
-
-    def _on_release(self, _widget, event) -> bool:
-        if event.button == 1:
-            self.brain.release(event.x_root, event.y_root)
-        return True
-
-    # --- signals ---------------------------------------------------------
+    # --- commands ---------------------------------------------------------------
 
     @keep_alive
     def reload(self) -> bool:
         try:
             cfg = config_mod.load()
             cached = sprites.load_cached(cfg.pokemon, style=cfg.style)
+            sprite = Sprite(cached, cfg.scale)
         except (config_mod.ConfigError, sprites.SpriteError) as e:
             print(f"buddy: reload skipped: {e}", file=sys.stderr)
             return True
         self.cfg = cfg
-        self.sprite = Sprite(cached, cfg.scale)
+        self.sprite = sprite
         self.bubbles = _load_bubbles(bubble_scale(cfg.scale))
         self.monitor = StressMonitor(cfg.stress)
         self.brain.walk_speed = cfg.walk_speed
         self.brain.resize(self.sprite.width, self.sprite.height)
         self._layout()
-        return True  # keep the SIGHUP handler installed
-
-    @keep_alive
-    def _on_claude_thinking(self) -> bool:
-        self.brain.claude_thinking()
         return True
 
-    @keep_alive
-    def _on_claude_done(self) -> bool:
-        self.brain.claude_done()
-        return True
+    def shutdown(self) -> None:
+        for timer in self._timers:
+            timer.stop()
+        self.server.remove_contact()
+        self.server.close()
+        self.pet.close()
+        self.decor.close()
 
-    def _quit(self) -> bool:
-        Gtk.main_quit()
-        return False
+
+# --- macOS: no Dock icon, visible on every Space (best effort, via the Objective-C runtime) ------
+
+
+def _objc():
+    lib = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+    lib.objc_getClass.restype = ctypes.c_void_p
+    lib.objc_getClass.argtypes = [ctypes.c_char_p]
+    lib.sel_registerName.restype = ctypes.c_void_p
+    lib.sel_registerName.argtypes = [ctypes.c_char_p]
+    return lib
+
+
+def _objc_send(lib, receiver, selector: str, *args, argtypes=()):
+    send = lib.objc_msgSend
+    send.restype = ctypes.c_void_p
+    send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, *argtypes]
+    return send(receiver, lib.sel_registerName(selector.encode()), *args)
+
+
+def _mac_tweaks(widgets: list[QWidget]) -> None:
+    try:
+        lib = _objc()
+        ns_app = _objc_send(lib, lib.objc_getClass(b"NSApplication"), "sharedApplication")
+        _objc_send(lib, ns_app, "setActivationPolicy:", 1, argtypes=[ctypes.c_long])  # accessory: no Dock icon
+        all_spaces = (1 << 0) | (1 << 4) | (1 << 8)  # CanJoinAllSpaces | Stationary | FullScreenAuxiliary
+        for widget in widgets:
+            ns_window = _objc_send(lib, int(widget.winId()), "window")
+            _objc_send(lib, ns_window, "setCollectionBehavior:", all_spaces, argtypes=[ctypes.c_ulong])
+    except Exception as e:  # cosmetic only; never stop buddy from running
+        print(f"buddy: macOS window tweaks skipped ({e})", file=sys.stderr)
 
 
 def run(cfg: Config, cached: sprites.CachedSprite) -> int:
-    if Gdk.Display.get_default() is None:
-        print(
-            "buddy: could not open an X11 display. On Wayland buddy needs XWayland "
-            "(sudo apt install xwayland).",
-            file=sys.stderr,
-        )
-        return 1
+    if sys.platform.startswith("linux") and os.environ.get("QT_QPA_PLATFORM", "xcb") == "xcb":
+        missing = missing_x11_libraries()
+        if missing:
+            print(
+                "buddy: Qt needs some system libraries. Install them with:\n"
+                f"  sudo apt install {' '.join(missing)}",
+                file=sys.stderr,
+            )
+            return 1
+    app = QApplication.instance() or QApplication(sys.argv[:1])
+    app.setQuitOnLastWindowClosed(False)
     try:
-        win = BuddyWindow(cfg, cached)
-    except RuntimeError as e:
+        buddy = Buddy(app, cfg, cached)
+    except sprites.SpriteError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
-    win.show_all()
-    win.update_input_shape()
-    Gtk.main()
-    return 0
+    buddy.show()
+    if sys.platform == "darwin":
+        _mac_tweaks([buddy.pet, buddy.decor])
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: app.quit())
+    try:
+        return app.exec()
+    finally:
+        buddy.shutdown()
