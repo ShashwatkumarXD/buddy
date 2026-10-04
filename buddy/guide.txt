@@ -29,6 +29,9 @@ COMMANDS
                           when you close the editor and a running buddy reloads.
   buddy autostart on      Start buddy automatically when you log in
   buddy autostart off     Don't start at login
+  buddy claude on         React to Claude Code (adds two hooks to ~/.claude/settings.json,
+                          keeping everything else; a backup is saved next to it)
+  buddy claude off        Stop reacting to Claude Code (removes only buddy's hooks)
   buddy guide             Show this guide
   buddy --help            Short list of commands
 
@@ -42,6 +45,16 @@ PLAYING WITH IT
   Laptop under load       💢 it stops and fidgets, and a green Matrix panel shows
                           CPU % and RAM %. Hidden again once things calm down.
   Clicks next to it go through to the window underneath.
+
+
+CLAUDE CODE
+-----------
+After `buddy claude on` (the installer offers this when it finds `claude`):
+  You send a prompt       it hurries to a spot near the right of the screen and
+                          shows its thinking bubble 📖❓ while Claude works
+  Claude finishes         ❗ bubble and three hops on the spot, then back to wandering
+  You stop Claude early   it gives up thinking after 10 minutes, or at your next prompt
+Restart open Claude Code sessions after turning this on or off.
 
 
 SETTINGS  (~/.config/buddy/config.toml, edit with `buddy config`)
@@ -84,11 +97,13 @@ TROUBLESHOOTING
   "could not open an X11 display"  sudo apt install xwayland
   Settings error                 `buddy config` shows the bad line; fix it and save
   Not there after login          journalctl --user -b | grep -i buddy
+  Doesn't react to Claude        `buddy claude on`, then restart Claude Code
   `buddy: command not found`     add ~/.local/bin to PATH, or use ./.venv/bin/buddy
 
 
 UNINSTALL
 ---------
+  buddy claude off
   buddy stop
   buddy autostart off
   rm -f ~/.local/bin/buddy

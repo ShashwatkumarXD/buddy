@@ -18,14 +18,13 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
 
 from buddy import config as config_mod  # noqa: E402
 from buddy import sprites  # noqa: E402
-from buddy.brain import Bounds, Brain, Bubble, State  # noqa: E402
+from buddy.brain import Bounds, Brain, Bubble  # noqa: E402
 from buddy.config import Config  # noqa: E402
 from buddy.matrix import PANEL_H, PANEL_W, MatrixRain  # noqa: E402
 from buddy.monitor import StressMonitor  # noqa: E402
 
 WINDOW_MODE = "normal"  # "normal" | "dock" | "popup" — chosen by the Task 1 spike
 FPS = 30
-MOVING_STATES = (State.WALK, State.FALLING, State.DRAGGED)
 MARGIN = 4
 
 
@@ -131,6 +130,8 @@ class BuddyWindow(Gtk.Window):
         GLib.timeout_add(1000 // FPS, self._on_tick)
         GLib.timeout_add_seconds(1, self._on_monitor)
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGHUP, self.reload)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, self._on_claude_thinking)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, self._on_claude_done)
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self._quit)
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self._quit)
 
@@ -147,7 +148,7 @@ class BuddyWindow(Gtk.Window):
         s = self.sprite
         self.sprite_off_x = PANEL_W + MARGIN
         self.win_w = s.width + 2 * (PANEL_W + MARGIN)
-        bubble_h = self.bubbles[Bubble.LOVE].get_height()
+        bubble_h = max(pb.get_height() for pb in self.bubbles.values())
         self.win_h = max(bubble_h + MARGIN + s.height, PANEL_H)
         self.sprite_off_y = self.win_h - s.height
         self.panel_y = self.win_h - PANEL_H
@@ -169,7 +170,7 @@ class BuddyWindow(Gtk.Window):
         now = time.monotonic()
         dt, self._last = now - self._last, now
         self.brain.tick(dt)
-        self.sprite.play("walk" if self.brain.state in MOVING_STATES else "idle")
+        self.sprite.play("walk" if self.brain.moving else "idle")
         self.sprite.advance(min(dt, 0.1) * 1000)
         if self.brain.stressed:
             self.matrix.tick(dt)
@@ -239,6 +240,14 @@ class BuddyWindow(Gtk.Window):
         self.brain.resize(self.sprite.width, self.sprite.height)
         self._layout()
         return True  # keep the SIGHUP handler installed
+
+    def _on_claude_thinking(self) -> bool:
+        self.brain.claude_thinking()
+        return True
+
+    def _on_claude_done(self) -> bool:
+        self.brain.claude_done()
+        return True
 
     def _quit(self) -> bool:
         Gtk.main_quit()
