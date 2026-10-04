@@ -8,19 +8,19 @@ the laptop lag, it gets stressed and shows a Matrix-style CPU/RAM readout.
 
 INSTALL (once)
 --------------
-  sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0
-  cd ~/Documents/myStuff/buddy
-  ./install.sh              # asks which Pokémon
-  ./install.sh eevee        # or name it directly
+  macOS / Linux:  ./install.sh              (or ./install.sh eevee)
+  Windows:        powershell -ExecutionPolicy Bypass -File install.ps1
 
-The installer puts the `buddy` command in ~/.local/bin, turns on start-at-login,
-and starts your buddy. Running it again is safe (it restarts the buddy).
-Before installing, use ./.venv/bin/buddy from the project folder instead of `buddy`.
+The installer sets up Qt and the `buddy` command, turns on start-at-login, offers
+to connect your AI agents, and starts your buddy. Running it again is safe.
+On Linux it also offers to install the few system libraries Qt needs.
 
 
 COMMANDS
 --------
-  buddy run               Start your buddy (only one runs at a time)
+  buddy run               Start your buddy (only one runs at a time). It keeps
+                          running after you close the terminal, until `buddy stop`.
+                          (`buddy run --foreground` stays attached, to watch for errors.)
   buddy stop              Stop it
   buddy choose <name>     Switch Pokémon, e.g. `buddy choose charmander`
                           (no name = it asks). A running buddy switches instantly.
@@ -89,18 +89,21 @@ Try the stress look (all cores busy for 25 seconds):
 
 FILES
 -----
-  ~/.config/buddy/config.toml            settings
-  ~/.cache/buddy/sprites/                downloaded sprites (safe to delete)
-  ~/.cache/buddy/buddy.log               log when started by install.sh
-  ~/.config/autostart/buddy.desktop      present when autostart is on
+  Settings      Linux ~/.config/buddy · macOS ~/Library/Application Support/buddy
+                Windows %APPDATA%\buddy
+  Sprites/logs  Linux ~/.cache/buddy · macOS ~/Library/Caches/buddy
+                Windows %LOCALAPPDATA%\buddy  (safe to delete)
+  Login start   Linux ~/.config/autostart/buddy.desktop
+                macOS ~/Library/LaunchAgents/com.buddy.pet.plist
+                Windows registry: HKCU\…\CurrentVersion\Run → Buddy
 
 
 TROUBLESHOOTING
 ---------------
   "Buddy is already running"     `buddy stop`, then `buddy run`
   "No sprites cached for …"      `buddy choose <name>`
-  "cairo bindings are missing"   sudo apt install python3-gi-cairo
-  "could not open an X11 display"  sudo apt install xwayland
+  "Qt needs some system libraries" (Linux)  run the sudo apt line it prints
+  "could not connect to display" (Linux)   sudo apt install xwayland
   Settings error                 `buddy config` shows the bad line; fix it and save
   Not there after login          journalctl --user -b | grep -i buddy
   Doesn't react to your agent    `buddy agents on`, then restart the agent (Codex: approve via /hooks)
@@ -112,10 +115,9 @@ UNINSTALL
   buddy agents off
   buddy stop
   buddy autostart off
-  rm -f ~/.local/bin/buddy
-  rm -rf ~/.config/buddy ~/.cache/buddy
-  # and the project folder itself if you're done with it:
-  # rm -rf ~/Documents/myStuff/buddy
+  Then delete the settings and sprites folders listed under FILES, the `buddy`
+  command (~/.local/bin/buddy, or %LOCALAPPDATA%\buddy\bin on Windows), and the
+  project folder.
 
 
 CREDITS

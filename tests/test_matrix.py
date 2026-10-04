@@ -1,7 +1,5 @@
 import random
 
-import cairo
-
 from buddy.matrix import PANEL_H, PANEL_W, TAIL, MatrixRain, format_stats
 
 
@@ -17,18 +15,21 @@ def test_rain_stays_bounded_over_time():
     assert all(-TAIL <= head <= rain.rows + TAIL for head in rain.heads)
 
 
-def test_draw_paints_green_panel():
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, PANEL_W, PANEL_H)
-    cr = cairo.Context(surface)
+def test_draw_paints_green_panel(qapp):
+    from PySide6.QtGui import QImage, QPainter
+
+    image = QImage(PANEL_W, PANEL_H, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
     rain = MatrixRain(rng=random.Random(1))
     for _ in range(30):
         rain.tick(1 / 30)
-    rain.draw(cr, 0, 0, 91, 77)
-    surface.flush()
-    data = surface.get_data()
+    painter = QPainter(image)
+    rain.draw(painter, 0, 0, 91, 77)
+    painter.end()
     greenish = 0
-    for i in range(0, len(data), 4):
-        b, g, r, a = data[i], data[i + 1], data[i + 2], data[i + 3]
-        if a > 0 and g > r + 40 and g > b + 40:
-            greenish += 1
+    for y in range(PANEL_H):
+        for x in range(PANEL_W):
+            c = image.pixelColor(x, y)
+            if c.alpha() > 0 and c.green() > c.red() + 40 and c.green() > c.blue() + 40:
+                greenish += 1
     assert greenish > 50

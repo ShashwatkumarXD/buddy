@@ -1,9 +1,10 @@
 """Settings stored in ~/.config/buddy/config.toml."""
 import json
-import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from buddy import paths
 
 
 STYLES = ("hgss", "gba", "ds")
@@ -32,8 +33,7 @@ class Config:
 
 
 def config_path() -> Path:
-    base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
-    return base / "buddy" / "config.toml"
+    return paths.config_dir() / "config.toml"
 
 
 def load(path: Path | None = None) -> Config:

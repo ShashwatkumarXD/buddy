@@ -10,7 +10,6 @@ Three styles:
 import http.client
 import io
 import json
-import os
 import shutil
 import tarfile
 import tempfile
@@ -23,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageSequence
+
+from buddy import paths
 
 API = "https://pokeapi.co/api/v2/pokemon/{name}"
 PMD_BASE = "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/sprite/{id:04d}/"
@@ -72,8 +73,7 @@ def normalize_name(name: str) -> str:
 
 
 def cache_dir() -> Path:
-    base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return base / "buddy" / "sprites"
+    return paths.cache_dir() / "sprites"
 
 
 def fetch_json(url: str, timeout: float = 10) -> dict:

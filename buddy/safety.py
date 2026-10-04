@@ -1,7 +1,7 @@
-"""Keep GLib callbacks alive: an error in one must never take the long-running buddy down.
+"""Keep GUI callbacks alive: an error in one timer tick or command must never take buddy down.
 
-GLib drops a timeout/signal source whose Python callback raises, and a dropped Unix signal source
-falls back to the signal's default action, so the next SIGHUP or SIGUSR1 would kill buddy.
+Every timer and IPC callback in the window is wrapped, so a bad frame, a broken reload or a
+surprise from the OS is logged to stderr and buddy keeps running.
 """
 import functools
 import sys
