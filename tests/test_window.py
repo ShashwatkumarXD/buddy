@@ -1,4 +1,5 @@
 """Off-screen smoke tests for the real Qt windows (run on Linux, macOS and Windows in CI)."""
+import sys
 import threading
 import time
 
@@ -107,6 +108,7 @@ def test_missing_x11_libraries_are_reported(monkeypatch):
     assert window.missing_x11_libraries() == ["libxcb-cursor0"]
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the X11 library check only runs on Linux")
 def test_x11_library_check_tries_to_load_the_real_files():
     from buddy import window
 
