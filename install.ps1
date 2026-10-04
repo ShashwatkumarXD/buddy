@@ -81,8 +81,11 @@ function Install-Buddy {
     if (-not (($userPath -split ";") -contains $binDir)) {
         $newPath = if ($userPath) { "$userPath;$binDir" } else { $binDir }
         [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-        Write-Host "Added the 'buddy' command to your PATH (open a new terminal to use it)."
+        Write-Host "Added the 'buddy' command to your PATH."
     }
+    # The user PATH only reaches newly opened terminals. `irm | iex` runs in your own window,
+    # so add it here too and `buddy` works right away.
+    if (-not (($env:Path -split ";") -contains $binDir)) { $env:Path = "$env:Path;$binDir" }
 
     if ($Pokemon) { & $buddy choose $Pokemon } else { & $buddy choose }
     if ($LASTEXITCODE -ne 0) { Write-Host "Couldn't get that Pokemon (see the message above). Run the installer again to retry."; return }
@@ -104,7 +107,7 @@ function Install-Buddy {
     if ($LASTEXITCODE -ne 0) { Write-Host "Buddy couldn't start (see the message above)."; return }
 
     Write-Host ""
-    Write-Host "Buddy is running! Commands (in a new terminal):"
+    Write-Host "Buddy is running! Commands (terminals that were already open need reopening first):"
     Write-Host "  buddy choose <name>    switch Pokemon"
     Write-Host "  buddy config           edit thresholds, size, speed"
     Write-Host "  buddy autostart off    don't start at login"

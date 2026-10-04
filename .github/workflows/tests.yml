@@ -54,9 +54,5 @@ jobs:
         run: |
           $env:BUDDY_POKEMON = "pikachu"
           irm "https://raw.githubusercontent.com/${{ github.repository }}/$env:BUDDY_REF/install.ps1" | iex
-      - name: Buddy is running (Windows)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          & "$env:LOCALAPPDATA\buddy\bin\buddy.cmd" stop
+          buddy stop  # the plain command works in the same window, and buddy was running
           if ($LASTEXITCODE -ne 0) { exit 1 }

@@ -72,8 +72,9 @@ The installer will:
 You can also name your Pokémon straight away: add `-s charmander` after `bash`, or on Windows run
 `$env:BUDDY_POKEMON = "charmander"` first.
 
-> **Tip:** if your terminal says `buddy: command not found` afterwards, open a new terminal.
-> On macOS or Linux, if it still happens, add `~/.local/bin` to your `PATH`.
+> **Tip:** on Windows the `buddy` command works straight away in the window you installed from.
+> In terminals that were already open, or if macOS/Linux says `buddy: command not found`, open a
+> new terminal. On macOS or Linux, if it still happens, add `~/.local/bin` to your `PATH`.
 
 ## Everyday use
 
@@ -148,6 +149,7 @@ for i in $(seq $(nproc)); do timeout 25 sh -c 'while :; do :; done' & done
 | Problem | Fix |
 |---|---|
 | Buddy doesn't appear | Run `buddy run --foreground` in a terminal and read the message it prints. |
+| `buddy` is not recognized (Windows) | Open a new PowerShell window, or run `$env:Path += ";$env:LOCALAPPDATA\buddy\bin"` |
 | "Qt needs some system libraries" (Linux) | Run the `sudo apt install …` line it prints. |
 | "could not connect to display" (Linux) | `sudo apt install xwayland` |
 | "No sprites cached for …" | `buddy choose <name>` (needs internet once) |
