@@ -52,7 +52,7 @@ All in package `buddy/`. Logic modules have no GTK imports so they are unit-test
 
 ```toml
 pokemon = "pikachu"
-scale = 2            # sprite pixel scale
+scale = 1.5          # sprite pixel scale (0.5–6)
 walk_speed = 20      # px/s
 [stress]
 cpu_enter = 85       # % averaged over window

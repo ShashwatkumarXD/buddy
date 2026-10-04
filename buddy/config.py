@@ -22,7 +22,7 @@ class StressConfig:
 @dataclass
 class Config:
     pokemon: str = "pikachu"
-    scale: int = 2
+    scale: float = 1.5
     walk_speed: float = 20.0
     stress: StressConfig = field(default_factory=StressConfig)
 
@@ -44,7 +44,7 @@ def load(path: Path | None = None) -> Config:
         d = StressConfig()
         cfg = Config(
             pokemon=_string(data, "pokemon", Config.pokemon),
-            scale=_int(data, "scale", Config.scale),
+            scale=_float(data, "scale", Config.scale),
             walk_speed=_float(data, "walk_speed", Config.walk_speed),
             stress=StressConfig(
                 cpu_enter=_float(stress, "cpu_enter", d.cpu_enter),
@@ -67,7 +67,7 @@ def save(cfg: Config, path: Path | None = None) -> None:
     s = cfg.stress
     path.write_text(
         f"pokemon = {json.dumps(cfg.pokemon)}\n"
-        f"scale = {cfg.scale}\n"
+        f"scale = {cfg.scale!r}\n"
         f"walk_speed = {cfg.walk_speed!r}\n"
         "\n[stress]\n"
         f"cpu_enter = {s.cpu_enter!r}\n"
@@ -82,8 +82,8 @@ def save(cfg: Config, path: Path | None = None) -> None:
 def validate(cfg: Config) -> None:
     if not cfg.pokemon:
         raise ConfigError("pokemon must not be empty")
-    if not 1 <= cfg.scale <= 6:
-        raise ConfigError("scale must be between 1 and 6")
+    if not 0.5 <= cfg.scale <= 6:
+        raise ConfigError("scale must be between 0.5 and 6")
     if not 1 <= cfg.walk_speed <= 500:
         raise ConfigError("walk_speed must be between 1 and 500")
     s = cfg.stress

@@ -33,11 +33,11 @@ MARGIN = 4
 class Sprite:
     """Scaled animation frames; source art faces left, mirrored copies face right."""
 
-    def __init__(self, frames: list[tuple[Path, int]], scale: int):
+    def __init__(self, frames: list[tuple[Path, int]], scale: float):
         self.left, self.right, self.durations = [], [], []
         for path, ms in frames:
             pb = GdkPixbuf.Pixbuf.new_from_file(str(path))
-            pb = pb.scale_simple(pb.get_width() * scale, pb.get_height() * scale, GdkPixbuf.InterpType.NEAREST)
+            pb = pb.scale_simple(round(pb.get_width() * scale), round(pb.get_height() * scale), GdkPixbuf.InterpType.NEAREST)
             self.left.append(pb)
             self.right.append(pb.flip(True))
             self.durations.append(ms)
