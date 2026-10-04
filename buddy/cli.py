@@ -88,7 +88,11 @@ def cmd_run(args) -> int:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
     os.environ["GDK_BACKEND"] = "x11"  # must happen before GTK is imported
-    from buddy import window
+    try:
+        from buddy import window
+    except ImportError as e:
+        print(f"buddy: {e}", file=sys.stderr)
+        return 1
 
     pid_path().write_text(str(os.getpid()))
     try:

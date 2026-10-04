@@ -117,3 +117,11 @@ def test_config_command_validates_after_editing(monkeypatch, capsys):
     config.config_path().write_text("[stress]\ncpu_exit = 99\n")
     assert cli.main(["config"]) == 1
     assert "cpu_exit" in capsys.readouterr().err
+
+
+def test_run_reports_missing_gtk_bindings(monkeypatch, capsys):
+    monkeypatch.setattr(sprites, "load_cached", lambda name: [("frame.png", 100)])
+    monkeypatch.setitem(sys.modules, "buddy.window", None)  # makes `from buddy import window` raise ImportError
+    assert cli.main(["run"]) == 1
+    assert "buddy:" in capsys.readouterr().err
+    assert not cli.pid_path().exists()
