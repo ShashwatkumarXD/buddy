@@ -18,7 +18,9 @@ On Linux it also offers to install the few system libraries Qt needs.
 
 COMMANDS
 --------
-  buddy run               Start your buddy (only one runs at a time)
+  buddy run               Start your buddy (only one runs at a time). It keeps
+                          running after you close the terminal, until `buddy stop`.
+                          (`buddy run --foreground` stays attached, to watch for errors.)
   buddy stop              Stop it
   buddy choose <name>     Switch Pokémon, e.g. `buddy choose charmander`
                           (no name = it asks). A running buddy switches instantly.

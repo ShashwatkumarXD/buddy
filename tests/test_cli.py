@@ -61,7 +61,7 @@ def test_autostart_on_writes_desktop_entry_on_linux(monkeypatch):
     monkeypatch.setattr(cli, "buddy_executable", lambda: "/opt/buddy/bin/buddy")
     assert cli.main(["autostart", "on"]) == 0
     text = cli.autostart_path().read_text()
-    assert 'Exec="/opt/buddy/bin/buddy" run' in text
+    assert 'Exec="/opt/buddy/bin/buddy" run --foreground' in text
     assert "Type=Application" in text
 
 
@@ -80,7 +80,7 @@ def test_autostart_on_macos_writes_a_launch_agent(monkeypatch, tmp_path):
     assert cli.main(["autostart", "on"]) == 0
     path = tmp_path / "home" / "Library" / "LaunchAgents" / "com.buddy.pet.plist"
     agent = plistlib.loads(path.read_bytes())
-    assert agent["ProgramArguments"] == ["/Users/me/buddy/.venv/bin/buddy", "run"]
+    assert agent["ProgramArguments"] == ["/Users/me/buddy/.venv/bin/buddy", "run", "--foreground"]
     assert agent["RunAtLoad"] is True
     assert cli.main(["autostart", "off"]) == 0
     assert not path.exists()
@@ -93,7 +93,7 @@ def test_autostart_on_windows_uses_the_run_key_without_a_console(monkeypatch):
     monkeypatch.setattr(cli, "_set_windows_autostart", calls.append)
     assert cli.main(["autostart", "on"]) == 0
     assert cli.main(["autostart", "off"]) == 0
-    assert calls == ['"C:/Users/me/buddy/.venv/Scripts/buddyw.exe" run', None]
+    assert calls == ['"C:/Users/me/buddy/.venv/Scripts/buddyw.exe" run --foreground', None]
 
 
 def test_choose_saves_canonical_name_and_reloads_running_buddy(monkeypatch, capsys, sent):
@@ -162,7 +162,7 @@ def test_config_command_validates_after_editing(monkeypatch, capsys):
 def test_run_reports_missing_gui_library(monkeypatch, capsys):
     monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
     monkeypatch.setitem(sys.modules, "buddy.window", None)  # makes `from buddy import window` raise ImportError
-    assert cli.main(["run"]) == 1
+    assert cli.main(["run", "--foreground"]) == 1
     assert "buddy:" in capsys.readouterr().err
     assert not ipc.port_file().exists()
 
@@ -298,7 +298,7 @@ def test_run_with_invalid_config_keeps_the_chosen_pokemon(monkeypatch, capsys):
     asked = []
     monkeypatch.setattr(sprites, "load_cached", lambda name, style: asked.append((name, style)) or object())
     monkeypatch.setitem(sys.modules, "buddy.window", None)
-    cli.main(["run"])
+    cli.main(["run", "--foreground"])
     assert asked == [("eevee", "ds")]
     assert "scale" in capsys.readouterr().err
 
@@ -431,7 +431,7 @@ def test_run_on_wayland_always_uses_xwayland(monkeypatch):
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setenv("QT_QPA_PLATFORM", "wayland")  # e.g. exported globally on Sway/KDE
     monkeypatch.delenv("BUDDY_QT_PLATFORM", raising=False)
-    cli.main(["run"])
+    cli.main(["run", "--foreground"])
     assert os.environ["QT_QPA_PLATFORM"] == "xcb"
 
 
@@ -441,7 +441,7 @@ def test_buddy_qt_platform_overrides_the_choice(monkeypatch):
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
     monkeypatch.setenv("DISPLAY", ":0")
     monkeypatch.setenv("BUDDY_QT_PLATFORM", "wayland")
-    cli.main(["run"])
+    cli.main(["run", "--foreground"])
     assert os.environ["QT_QPA_PLATFORM"] == "wayland"
 
 
@@ -464,3 +464,76 @@ def test_config_on_macos_waits_for_enter_not_for_textedit_to_quit(monkeypatch, c
     assert cli.main(["config"]) == 0
     assert opened and opened[0][:2] == ["open", "-t"] and "-W" not in opened[0]
     assert "Config OK" in capsys.readouterr().out
+
+
+# --- buddy run keeps going after the terminal closes ------------------------------
+
+
+class FakeChild:
+    def __init__(self, exit_code=None):
+        self.exit_code = exit_code
+
+    def poll(self):
+        return self.exit_code
+
+
+@pytest.fixture
+def spawned(monkeypatch):
+    """Record the background start instead of launching a real buddy."""
+    monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
+    calls = []
+
+    def popen(command, **kwargs):
+        calls.append((command, kwargs))
+        return FakeChild()
+
+    monkeypatch.setattr(cli.subprocess, "Popen", popen)
+    return calls
+
+
+def test_run_starts_buddy_in_its_own_session_and_returns(monkeypatch, spawned, capsys):
+    answers = iter([False, False, True])  # not running yet; still starting; up
+    monkeypatch.setattr(cli.ipc, "is_running", lambda: next(answers))
+    assert cli.main(["run"]) == 0
+    [(command, kwargs)] = spawned
+    assert command == [sys.executable, "-m", "buddy.cli", "run", "--foreground"]
+    assert kwargs["start_new_session"] is True  # no hang-up when the terminal closes
+    assert kwargs["stdin"] is cli.subprocess.DEVNULL
+    assert kwargs["stdout"] is cli.subprocess.DEVNULL
+    assert "buddy stop" in capsys.readouterr().out
+
+
+def test_run_on_windows_starts_buddy_detached_without_a_console(monkeypatch, spawned, tmp_path):
+    monkeypatch.setattr(cli, "_platform", lambda: "win32")
+    python = tmp_path / "Scripts" / "python.exe"
+    python.parent.mkdir()
+    python.touch()
+    (python.parent / "pythonw.exe").touch()
+    monkeypatch.setattr(cli.sys, "executable", str(python))
+    answers = iter([False, True])
+    monkeypatch.setattr(cli.ipc, "is_running", lambda: next(answers))
+    assert cli.main(["run"]) == 0
+    [(command, kwargs)] = spawned
+    assert command == [str(python.parent / "pythonw.exe"), "-m", "buddy.cli", "run", "--foreground"]
+    assert kwargs["creationflags"] & cli.DETACHED_PROCESS
+    assert kwargs["creationflags"] & cli.CREATE_NEW_PROCESS_GROUP
+    assert "start_new_session" not in kwargs
+
+
+def test_run_shows_why_buddy_failed_to_start(monkeypatch, capsys):
+    monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
+    monkeypatch.setattr(cli.ipc, "is_running", lambda: False)
+
+    def popen(command, stderr, **kwargs):
+        stderr.write("buddy: Qt can't open the display\n")
+        return FakeChild(exit_code=1)
+
+    monkeypatch.setattr(cli.subprocess, "Popen", popen)
+    assert cli.main(["run"]) == 1
+    assert "Qt can't open the display" in capsys.readouterr().err
+
+
+def test_run_does_not_start_anything_when_checks_fail(spawned, live_buddy, capsys):
+    assert cli.main(["run"]) == 1
+    assert "already running" in capsys.readouterr().out
+    assert spawned == []

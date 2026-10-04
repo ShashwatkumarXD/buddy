@@ -6,7 +6,6 @@ cd "$(cd "$(dirname "$0")" && pwd)"
 REPO="$PWD"
 BUDDY="$REPO/.venv/bin/buddy"
 OS="$(uname -s)"
-if [ "$OS" = "Darwin" ]; then LOG_DIR="$HOME/Library/Caches/buddy"; else LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/buddy"; fi
 
 command -v python3 >/dev/null || { echo "Python 3.11+ is required (https://www.python.org/downloads/)."; exit 1; }
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || { echo "Python 3.11 or newer is required."; exit 1; }
@@ -31,7 +30,7 @@ if [ "$OS" = "Linux" ]; then
     fi
 fi
 
-mkdir -p "$HOME/.local/bin" "$LOG_DIR"
+mkdir -p "$HOME/.local/bin"
 ln -sf "$BUDDY" "$HOME/.local/bin/buddy"
 
 if [ $# -ge 1 ]; then "$BUDDY" choose "$1"; else "$BUDDY" choose; fi
@@ -55,12 +54,7 @@ if [ -n "$found" ]; then
 fi
 
 "$BUDDY" stop >/dev/null 2>&1 || true
-if command -v setsid >/dev/null; then
-    setsid -f "$BUDDY" run >"$LOG_DIR/buddy.log" 2>&1 </dev/null
-else
-    nohup "$BUDDY" run >"$LOG_DIR/buddy.log" 2>&1 </dev/null &
-    disown
-fi
+"$BUDDY" run >/dev/null || { echo "Buddy couldn't start (see the message above)."; exit 1; }
 
 echo
 echo "Buddy is running! Commands:"

@@ -19,7 +19,6 @@ Write-Host "Setting up Python environment (downloads Qt the first time, about 80
 if ($LASTEXITCODE -ne 0) { Write-Host "Installing buddy's Python packages failed."; exit 1 }
 
 $buddy = Join-Path $PSScriptRoot ".venv\Scripts\buddy.exe"
-$buddyw = Join-Path $PSScriptRoot ".venv\Scripts\buddyw.exe"
 
 # A small `buddy` command on PATH (a shim, so the venv's python.exe doesn't shadow yours).
 $binDir = Join-Path $env:LOCALAPPDATA "buddy\bin"
@@ -49,7 +48,8 @@ if ($found.Count -gt 0) {
 }
 
 & $buddy stop *> $null
-Start-Process -FilePath $buddyw -ArgumentList "run"
+& $buddy run
+if ($LASTEXITCODE -ne 0) { Write-Host "Buddy couldn't start (see the message above)."; exit 1 }
 
 Write-Host ""
 Write-Host "Buddy is running! Commands (in a new terminal):"

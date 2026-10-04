@@ -149,7 +149,7 @@ for i in $(seq $(nproc)); do timeout 25 sh -c 'while :; do :; done' & done
 
 | Problem | Fix |
 |---|---|
-| Buddy doesn't appear | Run `buddy run` in a terminal and read the message it prints. |
+| Buddy doesn't appear | Run `buddy run --foreground` in a terminal and read the message it prints. |
 | "Qt needs some system libraries" (Linux) | Run the `sudo apt install …` line it prints. |
 | "could not connect to display" (Linux) | `sudo apt install xwayland` |
 | "No sprites cached for …" | `buddy choose <name>` (needs internet once) |

@@ -22,13 +22,16 @@ DESKTOP_ENTRY = """[Desktop Entry]
 Type=Application
 Name=Buddy
 Comment=Pokémon desktop buddy
-Exec="{exe}" run
+Exec="{exe}" run --foreground
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=5
 NoDisplay=true
 """
 MAC_AGENT_LABEL = "com.buddy.pet"
 WINDOWS_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+DETACHED_PROCESS = 0x00000008  # Windows process flags (subprocess only defines them on Windows)
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+START_TIMEOUT = 15.0  # seconds `buddy run` waits to see the new buddy answer
 EVENTS = ("thinking", "done")
 
 
@@ -112,6 +115,40 @@ def _set_windows_autostart(command: str | None) -> None:
             winreg.SetValueEx(key, "Buddy", 0, winreg.REG_SZ, command)
 
 
+def background_command() -> list[str]:
+    """The command `buddy run` launches; pythonw.exe on Windows so no console window pops up."""
+    python = Path(sys.executable)
+    if _platform().startswith("win") and python.with_name("pythonw.exe").exists():
+        python = python.with_name("pythonw.exe")
+    return [str(python), "-m", "buddy.cli", "run", "--foreground"]
+
+
+def _start_in_background() -> int:
+    """Start buddy detached from this terminal, so closing the terminal doesn't stop it."""
+    log = paths.cache_dir() / "buddy.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    if _platform().startswith("win"):
+        detach = {"creationflags": DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP}
+    else:
+        detach = {"start_new_session": True}  # own session: no hang-up when the terminal closes
+    with open(log, "w", encoding="utf-8") as err:
+        child = subprocess.Popen(
+            background_command(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err, **detach
+        )
+    deadline = time.monotonic() + START_TIMEOUT
+    while time.monotonic() < deadline:
+        if ipc.is_running():
+            print("Buddy is running. It stays until you run: buddy stop")
+            return 0
+        if child.poll() is not None:
+            reason = log.read_text(encoding="utf-8").strip()
+            print(reason or f"buddy: it stopped right after starting (see {log})", file=sys.stderr)
+            return 1
+        time.sleep(0.1)
+    print(f"Buddy is still starting. If it doesn't appear, see {log}")
+    return 0
+
+
 def cmd_run(args) -> int:
     from buddy import sprites
 
@@ -128,6 +165,8 @@ def cmd_run(args) -> int:
     except sprites.SpriteError as e:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
+    if not args.foreground:
+        return _start_in_background()
     override = os.environ.get("BUDDY_QT_PLATFORM")
     if override:
         os.environ["QT_QPA_PLATFORM"] = override
@@ -179,13 +218,13 @@ def cmd_autostart(args) -> int:
     on = args.state == "on"
     platform = _platform()
     if platform.startswith("win"):
-        _set_windows_autostart(f'"{Path(gui_executable()).as_posix()}" run' if on else None)
+        _set_windows_autostart(f'"{Path(gui_executable()).as_posix()}" run --foreground' if on else None)
     else:
         path = autostart_path()
         if on:
             path.parent.mkdir(parents=True, exist_ok=True)
             if platform == "darwin":
-                agent = {"Label": MAC_AGENT_LABEL, "ProgramArguments": [buddy_executable(), "run"], "RunAtLoad": True}
+                agent = {"Label": MAC_AGENT_LABEL, "ProgramArguments": [buddy_executable(), "run", "--foreground"], "RunAtLoad": True}
                 path.write_bytes(plistlib.dumps(agent))
             else:
                 path.write_text(DESKTOP_ENTRY.format(exe=buddy_executable()))
@@ -379,7 +418,9 @@ def cmd_guide(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="buddy", description="A Pokémon that lives on your desktop.")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("run", help="start buddy").set_defaults(func=cmd_run)
+    p = sub.add_parser("run", help="start buddy (keeps running after you close the terminal)")
+    p.add_argument("--foreground", action="store_true", help="stay attached to this terminal")
+    p.set_defaults(func=cmd_run)
     p = sub.add_parser("choose", help="pick your Pokémon")
     p.add_argument("name", nargs="?")
     p.set_defaults(func=cmd_choose)
