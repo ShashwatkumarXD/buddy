@@ -52,7 +52,7 @@ All in package `buddy/`. Logic modules have no GTK imports so they are unit-test
 
 ```toml
 pokemon = "pikachu"
-style = "gba"        # gba = Mystery Dungeon sprites, ds = Black/White sprites
+style = "hgss"       # hgss = HeartGold followers, gba = Mystery Dungeon, ds = Black/White
 scale = 2            # sprite pixel scale (0.5–6)
 walk_speed = 20      # px/s
 [stress]
@@ -95,7 +95,13 @@ latest CPU% and RAM%.
 
 ### Sprites
 
-**Style `gba` (default, chosen by the user 2026-10-04):** Mystery Dungeon-style sheets from
+**Style `hgss` (default, chosen by the user 2026-10-04):** HeartGold/SoulSilver follower
+sprites from veekun's overworld pack (`overworld.tar.gz`, 2.7 MB, downloaded once into the
+sprite cache and read in place). #1–493 only: walk = `right/{id}.png` + `right/frame2/{id}.png`
+(250 ms steps), idle/stressed = `down/…` front view (600 ms). Later Pokémon, or ones missing
+from the pack, fall back to `gba` with a note.
+
+**Style `gba`:** Mystery Dungeon-style sheets from
 PMDCollab SpriteCollab (`sprite/{id:04d}/AnimData.xml`, `Walk-Anim.png`, `Idle-Anim.png`).
 The right-facing row (row 2) is used and mirrored for left. Walk plays while moving/falling/
 dragged, Idle while standing/stressed. Frames are padded around their centres onto one canvas so

@@ -1,4 +1,5 @@
 import io
+import tarfile
 import urllib.error
 
 import pytest
@@ -56,9 +57,9 @@ def pmd_sheet(fw, fh, cols, rows=8, right_row=2):
     return png(im)
 
 
-def api_json(animated=ANIMATED, static=STATIC, gen3=None, name="pikachu"):
+def api_json(animated=ANIMATED, static=STATIC, gen3=None, name="pikachu", id=25):
     return {
-        "id": 25,
+        "id": id,
         "name": name,
         "sprites": {
             "front_default": static,
@@ -84,11 +85,11 @@ def fetch_bytes_from(mapping):
     return fetch
 
 
-def gba_fetch(**overrides):
+def gba_fetch(base=PMD, **overrides):
     mapping = {
-        PMD + "AnimData.xml": ANIM_XML.encode(),
-        PMD + "Walk-Anim.png": pmd_sheet(10, 12, 2),
-        PMD + "Idle-Anim.png": pmd_sheet(14, 16, 3),
+        base + "AnimData.xml": ANIM_XML.encode(),
+        base + "Walk-Anim.png": pmd_sheet(10, 12, 2),
+        base + "Idle-Anim.png": pmd_sheet(14, 16, 3),
         GEN3: png_bytes(),
     }
     mapping.update(overrides)
@@ -258,3 +259,91 @@ def test_parse_anim_data_refuses_entity_declarations():
     bomb = '<?xml version="1.0"?><!DOCTYPE a [<!ENTITY x "xxxxxxxx"><!ENTITY y "&x;&x;&x;&x;">]><AnimData>&y;</AnimData>'
     with pytest.raises(sprites.SpriteError, match="DTD"):
         sprites.parse_anim_data(bomb)
+
+
+def hgss_pack(ids=(25,)):
+    """A tiny stand-in for veekun's overworld.tar.gz: 32x32 frames, one coloured dot per pose."""
+    colors = {"right": (0, 0, 255), "right/frame2": (0, 0, 200), "down": (0, 255, 0), "down/frame2": (0, 200, 0)}
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for id in ids:
+            for pose, rgb in colors.items():
+                im = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+                im.paste(rgb + (255,), (10, 12, 22, 30))
+                data = png(im)
+                info = tarfile.TarInfo(f"pokemon/overworld/{pose}/{id}.png")
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+class CountingFetch:
+    def __init__(self, mapping):
+        self.mapping = mapping
+        self.calls = []
+
+    def __call__(self, url):
+        self.calls.append(url)
+        value = self.mapping[url]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+def test_hgss_walks_with_follower_step_and_faces_you_when_idle(tmp_path):
+    fetch = CountingFetch({sprites.HGSS_PACK_URL: hgss_pack()})
+    sprites.download("pikachu", style="hgss", fetch_json=fetch_json_returning(api_json()), fetch_bytes=fetch, root=tmp_path)
+    cached = sprites.load_cached("pikachu", style="hgss", root=tmp_path)
+    assert cached.faces == 1
+    assert [ms for _, ms in cached.anims["walk"]] == [sprites.HGSS_STEP_MS] * 2
+    assert [ms for _, ms in cached.anims["idle"]] == [sprites.HGSS_IDLE_MS] * 2
+    walk = Image.open(cached.anims["walk"][0][0]).convert("RGBA")
+    idle = Image.open(cached.anims["idle"][0][0]).convert("RGBA")
+    assert walk.size == idle.size == (12, 18)
+    assert walk.getpixel((0, 0)) == (0, 0, 255, 255)  # side view, facing right
+    assert idle.getpixel((0, 0)) == (0, 255, 0, 255)  # front view
+
+
+def test_hgss_pack_is_downloaded_once(tmp_path):
+    fetch = CountingFetch({sprites.HGSS_PACK_URL: hgss_pack(ids=(25, 133))})
+    sprites.download("pikachu", style="hgss", fetch_json=fetch_json_returning(api_json()), fetch_bytes=fetch, root=tmp_path)
+    sprites.download(
+        "eevee", style="hgss", fetch_json=fetch_json_returning(api_json(name="eevee", id=133)), fetch_bytes=fetch, root=tmp_path
+    )
+    assert fetch.calls.count(sprites.HGSS_PACK_URL) == 1
+    assert sprites.load_cached("eevee", style="hgss", root=tmp_path).faces == 1
+
+
+def test_corrupt_hgss_pack_is_downloaded_again(tmp_path):
+    (tmp_path / sprites.HGSS_PACK_FILE).write_bytes(b"half a download")
+    fetch = CountingFetch({sprites.HGSS_PACK_URL: hgss_pack()})
+    sprites.download("pikachu", style="hgss", fetch_json=fetch_json_returning(api_json()), fetch_bytes=fetch, root=tmp_path)
+    assert fetch.calls.count(sprites.HGSS_PACK_URL) == 1
+    assert len(sprites.load_cached("pikachu", style="hgss", root=tmp_path).anims["walk"]) == 2
+
+
+def test_hgss_after_gen4_falls_back_to_mystery_dungeon(tmp_path):
+    notes = []
+    base = sprites.PMD_BASE.format(id=494)
+    fetch = gba_fetch(base=base, **{sprites.HGSS_PACK_URL: hgss_pack()})
+    sprites.download(
+        "victini",
+        style="hgss",
+        fetch_json=fetch_json_returning(api_json(name="victini", id=494)),
+        fetch_bytes=fetch,
+        root=tmp_path,
+        notes=notes,
+    )
+    cached = sprites.load_cached("victini", style="hgss", root=tmp_path)
+    assert [ms for _, ms in cached.anims["walk"]] == [100, 200]  # the Mystery Dungeon walk
+    assert "Mystery Dungeon" in notes[0]
+
+
+def test_hgss_pokemon_missing_from_pack_falls_back_to_mystery_dungeon(tmp_path):
+    notes = []
+    fetch = gba_fetch(**{sprites.HGSS_PACK_URL: hgss_pack(ids=(1,))})
+    sprites.download(
+        "pikachu", style="hgss", fetch_json=fetch_json_returning(api_json()), fetch_bytes=fetch, root=tmp_path, notes=notes
+    )
+    assert [ms for _, ms in sprites.load_cached("pikachu", style="hgss", root=tmp_path).anims["walk"]] == [100, 200]
+    assert "Mystery Dungeon" in notes[0]

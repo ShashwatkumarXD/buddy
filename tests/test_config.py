@@ -7,7 +7,7 @@ from buddy.config import Config, StressConfig
 def test_missing_file_gives_defaults(tmp_path):
     cfg = config.load(tmp_path / "nope.toml")
     assert cfg == Config()
-    assert (cfg.pokemon, cfg.style, cfg.scale, cfg.walk_speed) == ("pikachu", "gba", 2, 20)
+    assert (cfg.pokemon, cfg.style, cfg.scale, cfg.walk_speed) == ("pikachu", "hgss", 2, 20)
     assert cfg.stress == StressConfig(85, 90, 70, 85, 5)
 
 
@@ -32,7 +32,7 @@ def test_partial_file_fills_in_defaults(tmp_path):
     assert cfg.stress.cpu_enter == 95
     assert cfg.stress.ram_enter == 90
     assert cfg.scale == 2
-    assert cfg.style == "gba"
+    assert cfg.style == "hgss"
 
 
 def test_fractional_scale_is_allowed(tmp_path):

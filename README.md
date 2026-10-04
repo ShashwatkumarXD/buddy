@@ -35,7 +35,8 @@ rm -r ~/.config/buddy ~/.cache/buddy
 
 ## Sprite credits
 
-Default `style = "gba"` uses Mystery Dungeon-style sprites from the
+Default `style = "hgss"` uses HeartGold/SoulSilver follower sprites from
+[veekun's downloads](https://veekun.com/dex/downloads) (#1–493). `style = "gba"` uses Mystery Dungeon-style sprites from the
 [PMDCollab SpriteCollab](https://github.com/PMDCollab/SpriteCollab) project (CC BY-NC 4.0,
 credit to their artists). `style = "ds"` uses Black/White sprites via [PokéAPI](https://pokeapi.co).
 Pokémon is © Nintendo / Creatures / GAME FREAK.

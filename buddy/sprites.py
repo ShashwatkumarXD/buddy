@@ -1,6 +1,8 @@
 """Find a Pokémon on PokéAPI, download its sprite frames, and cache them on disk.
 
-Two styles:
+Three styles:
+- "hgss": HeartGold/SoulSilver follower sprites from veekun's overworld pack (#1–493, 2-frame
+  step facing right, front view when idle), falling back to "gba" for later Pokémon.
 - "gba": Mystery Dungeon-style walk/idle sheets from PMDCollab SpriteCollab (side view,
   facing right), falling back to the still Emerald battle sprite.
 - "ds": Black/White animated battle sprite (facing left), falling back to the still sprite.
@@ -9,6 +11,7 @@ import io
 import json
 import os
 import shutil
+import tarfile
 import tempfile
 import urllib.error
 import urllib.parse
@@ -23,7 +26,12 @@ API = "https://pokeapi.co/api/v2/pokemon/{name}"
 PMD_BASE = "https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master/sprite/{id:04d}/"
 PMD_FRAME_MS = 1000 / 60  # AnimData durations are in 60 fps game frames
 PMD_RIGHT_ROW = 2  # sheet rows: down, down-right, right, up-right, up, up-left, left, down-left
-STYLES = ("gba", "ds")
+STYLES = ("hgss", "gba", "ds")
+HGSS_PACK_URL = "https://veekun.com/static/pokedex/downloads/overworld.tar.gz"
+HGSS_PACK_FILE = "hgss-overworld.tar.gz"
+HGSS_MAX_ID = 493
+HGSS_STEP_MS = 250
+HGSS_IDLE_MS = 600
 DEFAULT_FRAME_MS = 100
 MIN_FRAME_MS = 20
 
@@ -191,16 +199,19 @@ def download(
 ) -> str:
     """Download and cache a Pokémon's sprite; returns its canonical name. Fallback notes go into `notes`."""
     if style not in STYLES:
-        raise SpriteError(f"Unknown sprite style '{style}' (use gba or ds).")
+        raise SpriteError(f"Unknown sprite style '{style}' (use hgss, gba or ds).")
     name = normalize_name(name)
     if not name:
         raise SpriteError("Please give a Pokémon name.")
     info = lookup(name, fetch_json=fetch_json)
-    if style == "gba":
+    root = root or cache_dir()
+    if style == "hgss":
+        anims, faces = _hgss_anims(info, fetch_bytes, root, notes)
+    elif style == "gba":
         anims, faces = _gba_anims(info, fetch_bytes, notes)
     else:
         anims, faces = {"walk": _ds_frames(info, fetch_bytes)}, -1
-    _write_atomically((root or cache_dir()) / style, info.name, crop_anims(anims), faces)
+    _write_atomically(root / style, info.name, crop_anims(anims), faces)
     return info.name
 
 
@@ -224,6 +235,53 @@ def _open_image(data: bytes) -> Image.Image:
         return Image.open(io.BytesIO(data)).convert("RGBA")
     except (OSError, ValueError, SyntaxError) as e:
         raise SpriteError(f"Unreadable sprite sheet ({e}).") from None
+
+
+def _hgss_anims(info: SpriteInfo, fetch_bytes, root: Path, notes: list[str] | None) -> tuple[dict[str, Frames], int]:
+    if info.id <= HGSS_MAX_ID:
+        poses = {"walk": ("right", "right/frame2"), "idle": ("down", "down/frame2")}
+        timing = {"walk": HGSS_STEP_MS, "idle": HGSS_IDLE_MS}
+        try:
+            with tarfile.open(_hgss_pack(fetch_bytes, root)) as pack:
+                anims = {
+                    key: [(_read_pack_image(pack, f"pokemon/overworld/{pose}/{info.id}.png"), timing[key]) for pose in pair]
+                    for key, pair in poses.items()
+                }
+            return anims, 1
+        except KeyError:
+            pass
+    if notes is not None:
+        notes.append(f"No HeartGold/SoulSilver follower sprite for {info.name}; using Mystery Dungeon style instead.")
+    return _gba_anims(info, fetch_bytes, notes)
+
+
+def _hgss_pack(fetch_bytes, root: Path) -> Path:
+    """Path to veekun's overworld pack, downloading it once (again if the cached copy is unreadable)."""
+    pack = root / HGSS_PACK_FILE
+    if pack.exists():
+        try:
+            with tarfile.open(pack) as tar:
+                tar.getmembers()
+            return pack
+        except (tarfile.TarError, OSError, EOFError):
+            pack.unlink()
+    try:
+        data = fetch_bytes(HGSS_PACK_URL)
+    except OSError as e:
+        raise SpriteError(f"Could not download the HeartGold/SoulSilver sprite pack ({e}).") from None
+    root.mkdir(parents=True, exist_ok=True)
+    tmp = pack.with_suffix(".part")
+    tmp.write_bytes(data)
+    tmp.rename(pack)
+    return pack
+
+
+def _read_pack_image(pack: tarfile.TarFile, member: str) -> Image.Image:
+    """Read one PNG straight out of the pack (nothing is extracted to disk). Missing member -> KeyError."""
+    file = pack.extractfile(member)
+    if file is None:
+        raise KeyError(member)
+    return _open_image(file.read())
 
 
 def _gba_anims(info: SpriteInfo, fetch_bytes, notes: list[str] | None) -> tuple[dict[str, Frames], int]:

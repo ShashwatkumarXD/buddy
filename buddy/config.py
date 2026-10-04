@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-STYLES = ("gba", "ds")
+STYLES = ("hgss", "gba", "ds")
 
 
 class ConfigError(ValueError):
@@ -25,7 +25,7 @@ class StressConfig:
 @dataclass
 class Config:
     pokemon: str = "pikachu"
-    style: str = "gba"
+    style: str = "hgss"
     scale: float = 2.0
     walk_speed: float = 20.0
     stress: StressConfig = field(default_factory=StressConfig)
@@ -72,7 +72,7 @@ def save(cfg: Config, path: Path | None = None) -> None:
     s = cfg.stress
     path.write_text(
         f"pokemon = {json.dumps(cfg.pokemon)}\n"
-        f"style = {json.dumps(cfg.style)}  # gba (Mystery Dungeon) or ds (Black/White)\n"
+        f"style = {json.dumps(cfg.style)}  # hgss (HeartGold followers), gba (Mystery Dungeon) or ds (Black/White)\n"
         f"scale = {cfg.scale!r}\n"
         f"walk_speed = {cfg.walk_speed!r}\n"
         "\n[stress]\n"
@@ -89,7 +89,7 @@ def validate(cfg: Config) -> None:
     if not cfg.pokemon:
         raise ConfigError("pokemon must not be empty")
     if cfg.style not in STYLES:
-        raise ConfigError('style must be "gba" or "ds"')
+        raise ConfigError('style must be "hgss", "gba" or "ds"')
     if not 0.5 <= cfg.scale <= 6:
         raise ConfigError("scale must be between 0.5 and 6")
     if not 1 <= cfg.walk_speed <= 500:
