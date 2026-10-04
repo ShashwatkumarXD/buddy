@@ -19,7 +19,7 @@ buddy = "buddy.cli:main"
 packages = ["buddy"]
 
 [tool.setuptools.package-data]
-buddy = ["assets/bubbles/*.png"]
+buddy = ["assets/bubbles/*.png", "guide.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

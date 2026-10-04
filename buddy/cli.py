@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from importlib import resources
 from pathlib import Path
 
 from buddy import config, sprites
@@ -178,6 +179,11 @@ def cmd_stop(args) -> int:
     return 0
 
 
+def cmd_guide(args) -> int:
+    print((resources.files("buddy") / "guide.txt").read_text(encoding="utf-8"))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="buddy", description="A Pokémon that lives on your desktop.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -190,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_autostart)
     sub.add_parser("config", help="edit settings").set_defaults(func=cmd_config)
     sub.add_parser("stop", help="stop buddy").set_defaults(func=cmd_stop)
+    sub.add_parser("guide", help="show the full guide").set_defaults(func=cmd_guide)
     args = parser.parse_args(argv)
     return args.func(args)
 

@@ -1,0 +1,105 @@
+BUDDY GUIDE
+===========
+
+A Pokémon that lives on top of your windows. It wanders along the bottom of the
+screen and acts as your laptop's "soul": when CPU or RAM gets high enough to make
+the laptop lag, it gets stressed and shows a Matrix-style CPU/RAM readout.
+
+
+INSTALL (once)
+--------------
+  sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0
+  cd ~/Documents/myStuff/buddy
+  ./install.sh              # asks which Pokémon
+  ./install.sh eevee        # or name it directly
+
+The installer puts the `buddy` command in ~/.local/bin, turns on start-at-login,
+and starts your buddy. Running it again is safe (it restarts the buddy).
+Before installing, use ./.venv/bin/buddy from the project folder instead of `buddy`.
+
+
+COMMANDS
+--------
+  buddy run               Start your buddy (only one runs at a time)
+  buddy stop              Stop it
+  buddy choose <name>     Switch Pokémon, e.g. `buddy choose charmander`
+                          (no name = it asks). A running buddy switches instantly.
+                          Names are English, any case; spaces are fine (mr mime).
+  buddy config            Open the settings file in your editor; it is checked
+                          when you close the editor and a running buddy reloads.
+  buddy autostart on      Start buddy automatically when you log in
+  buddy autostart off     Don't start at login
+  buddy guide             Show this guide
+  buddy --help            Short list of commands
+
+
+PLAYING WITH IT
+---------------
+  Click it                ❤️  it feels loved and does a little hop
+  Click, hold and drag    carry it anywhere; let go and it falls back down,
+                          looking confused ❓
+  Walking into an edge    turns around (sometimes confused ❓)
+  Laptop under load       💢 it stops and fidgets, and a green Matrix panel shows
+                          CPU % and RAM %. Hidden again once things calm down.
+  Clicks next to it go through to the window underneath.
+
+
+SETTINGS  (~/.config/buddy/config.toml, edit with `buddy config`)
+--------
+  pokemon = "pikachu"     Set this with `buddy choose`, which also downloads the sprite
+  style = "hgss"          hgss = HeartGold/SoulSilver follower sprites (#1–493)
+                          gba  = Mystery Dungeon style sprites (nearly every Pokémon)
+                          ds   = Black/White battle sprites
+                          After changing style, run `buddy choose <name>` again.
+                          hgss falls back to gba for Pokémon after #493.
+  scale = 2               Size. Whole numbers keep pixel art crisp (2 ≈ 64 px,
+                          3 ≈ 96 px). Allowed 0.5–6. Bubbles follow at half this.
+  walk_speed = 20         Pixels per second (1–500)
+
+  [stress]                When does it get stressed? (percentages)
+  cpu_enter = 85          Stressed when average CPU over the window reaches this…
+  ram_enter = 90          …or average RAM reaches this
+  cpu_exit = 70           Calm again only when CPU stays below this…
+  ram_exit = 85           …and RAM stays below this, for a whole window
+  window_seconds = 5      Length of that window in seconds (1–60)
+  Each *_exit must be lower than its *_enter.
+
+Try the stress look (all cores busy for 25 seconds):
+  for i in $(seq $(nproc)); do timeout 25 sh -c 'while :; do :; done' & done
+
+
+FILES
+-----
+  ~/.config/buddy/config.toml            settings
+  ~/.cache/buddy/sprites/                downloaded sprites (safe to delete)
+  ~/.cache/buddy/buddy.log               log when started by install.sh
+  ~/.config/autostart/buddy.desktop      present when autostart is on
+
+
+TROUBLESHOOTING
+---------------
+  "Buddy is already running"     `buddy stop`, then `buddy run`
+  "No sprites cached for …"      `buddy choose <name>`
+  "cairo bindings are missing"   sudo apt install python3-gi-cairo
+  "could not open an X11 display"  sudo apt install xwayland
+  Settings error                 `buddy config` shows the bad line; fix it and save
+  Not there after login          journalctl --user -b | grep -i buddy
+  `buddy: command not found`     add ~/.local/bin to PATH, or use ./.venv/bin/buddy
+
+
+UNINSTALL
+---------
+  buddy stop
+  buddy autostart off
+  rm -f ~/.local/bin/buddy
+  rm -rf ~/.config/buddy ~/.cache/buddy
+  # and the project folder itself if you're done with it:
+  # rm -rf ~/Documents/myStuff/buddy
+
+
+CREDITS
+-------
+  HeartGold/SoulSilver sprites: veekun.com/dex/downloads
+  Mystery Dungeon style sprites: PMDCollab SpriteCollab (CC BY-NC 4.0)
+  Black/White sprites and Pokémon data: pokeapi.co
+  Pokémon © Nintendo / Creatures / GAME FREAK. Personal use only.

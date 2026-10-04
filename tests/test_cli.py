@@ -140,3 +140,13 @@ def test_choose_uses_configured_style_and_prints_fallback_notes(monkeypatch, cap
     assert cli.main(["choose", "zorua"]) == 0
     assert seen["style"] == "ds"
     assert "using its Emerald sprite" in capsys.readouterr().out
+
+
+def test_guide_covers_every_command_and_setting(capsys):
+    assert cli.main(["guide"]) == 0
+    out = capsys.readouterr().out
+    for command in ("run", "stop", "choose", "config", "autostart on", "autostart off", "guide"):
+        assert f"buddy {command}" in out
+    for setting in ("pokemon", "style", "scale", "walk_speed", "cpu_enter", "ram_enter", "cpu_exit", "ram_exit", "window_seconds"):
+        assert setting in out
+    assert "UNINSTALL" in out.upper()

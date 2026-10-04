@@ -16,6 +16,9 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0   # once
 
 ## Commands
 
+Full guide (settings, styles, troubleshooting, uninstall): run `buddy guide` or read [buddy/guide.txt](buddy/guide.txt).
+
+
 | Command | What it does |
 |---|---|
 | `buddy choose <name>` | Switch Pokémon |
