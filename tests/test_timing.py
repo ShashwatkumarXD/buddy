@@ -1,0 +1,20 @@
+import pytest
+
+from buddy.timing import bubble_durations, frame_at
+
+
+def test_single_frame_bubble_never_changes():
+    assert bubble_durations(1) == [1000]
+    assert frame_at(0, [1000]) == 0
+    assert frame_at(123456, [1000]) == 0
+
+
+def test_animated_bubble_holds_then_flips():
+    durations = bubble_durations(4)
+    assert durations == [700, 110, 110, 110]
+    assert [frame_at(ms, durations) for ms in (0, 699, 700, 809, 810, 920, 1029, 1030)] == [0, 0, 1, 1, 2, 3, 3, 0]
+
+
+def test_frame_at_rejects_empty_durations():
+    with pytest.raises(ValueError):
+        frame_at(0, [])

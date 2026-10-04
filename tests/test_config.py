@@ -72,3 +72,19 @@ def test_invalid_config_raises_clear_error(tmp_path, text, message):
 def test_save_refuses_invalid_config(tmp_path):
     with pytest.raises(config.ConfigError):
         config.save(Config(scale=99), tmp_path / "c.toml")
+
+
+def test_unreadable_config_is_a_config_error(tmp_path):
+    path = tmp_path / "config.toml"
+    path.mkdir()  # a directory where the file should be
+    with pytest.raises(config.ConfigError):
+        config.load(path)
+
+
+def test_salvage_keeps_valid_pokemon_and_style(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('pokemon = "Eevee"\nstyle = "ds"\nscale = 10\n')
+    cfg = config.salvage(path)
+    assert (cfg.pokemon, cfg.style, cfg.scale) == ("eevee", "ds", Config().scale)
+    path.write_text("not toml at all [")
+    assert config.salvage(path) == Config()

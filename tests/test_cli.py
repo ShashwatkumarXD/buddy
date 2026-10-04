@@ -17,9 +17,12 @@ def xdg(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def fake_buddy_process():
-    """A process whose command line looks like `... buddy run`."""
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", "buddy", "run"])
+def fake_buddy_process(tmp_path):
+    """A process whose command line looks like the console script: `python .../buddy run`."""
+    script = tmp_path / "bin" / "buddy"
+    script.parent.mkdir()
+    script.write_text("import time\ntime.sleep(30)\n")
+    proc = subprocess.Popen([sys.executable, str(script), "run"])
     yield proc
     proc.kill()
     proc.wait()
@@ -111,6 +114,7 @@ def test_run_without_sprites_explains_how_to_fix(capsys):
 def test_config_command_validates_after_editing(monkeypatch, capsys):
     monkeypatch.setenv("EDITOR", "true")
     monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setattr(sprites, "load_cached", lambda name, **kw: object())
     assert cli.main(["config"]) == 0  # creates defaults
     assert config.config_path().exists()
     assert "Config OK" in capsys.readouterr().out
@@ -145,8 +149,229 @@ def test_choose_uses_configured_style_and_prints_fallback_notes(monkeypatch, cap
 def test_guide_covers_every_command_and_setting(capsys):
     assert cli.main(["guide"]) == 0
     out = capsys.readouterr().out
-    for command in ("run", "stop", "choose", "config", "autostart on", "autostart off", "guide"):
+    for command in ("run", "stop", "choose", "config", "autostart on", "autostart off", "agents on", "agents off", "claude on", "claude off", "guide"):
         assert f"buddy {command}" in out
     for setting in ("pokemon", "style", "scale", "walk_speed", "cpu_enter", "ram_enter", "cpu_exit", "ram_exit", "window_seconds"):
         assert setting in out
     assert "UNINSTALL" in out.upper()
+
+
+# --- Claude Code integration -------------------------------------------------
+
+import json  # noqa: E402
+
+
+@pytest.fixture
+def claude_dir(tmp_path, monkeypatch):
+    folder = tmp_path / "claude"
+    folder.mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(folder))
+    monkeypatch.setattr(cli, "buddy_executable", lambda: "/opt/buddy/bin/buddy")
+    return folder
+
+
+def buddy_commands(settings):
+    return [
+        hook["command"]
+        for groups in settings.get("hooks", {}).values()
+        for group in groups
+        for hook in group.get("hooks", [])
+        if "buddy" in hook.get("command", "")
+    ]
+
+
+def test_claude_on_adds_thinking_and_done_hooks(claude_dir):
+    assert cli.main(["claude", "on"]) == 0
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    prompt = settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    stop = settings["hooks"]["Stop"][0]["hooks"][0]
+    assert prompt == {"type": "command", "command": '"/opt/buddy/bin/buddy" event thinking', "timeout": 5}
+    assert stop == {"type": "command", "command": '"/opt/buddy/bin/buddy" event done', "timeout": 5}
+
+
+def test_claude_on_preserves_existing_settings(claude_dir):
+    existing = {
+        "model": "opus",
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "notify-send done"}]}]},
+    }
+    (claude_dir / "settings.json").write_text(json.dumps(existing))
+    assert cli.main(["claude", "on"]) == 0
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    assert settings["model"] == "opus"
+    stop_commands = [h["command"] for g in settings["hooks"]["Stop"] for h in g["hooks"]]
+    assert "notify-send done" in stop_commands
+    assert json.loads((claude_dir / "settings.json.buddy-backup").read_text()) == existing
+
+
+def test_claude_on_is_idempotent(claude_dir):
+    cli.main(["claude", "on"])
+    cli.main(["claude", "on"])
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    assert len(buddy_commands(settings)) == 2
+
+
+def test_claude_off_removes_only_buddy_hooks(claude_dir):
+    (claude_dir / "settings.json").write_text(
+        json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "notify-send done"}]}]}})
+    )
+    cli.main(["claude", "on"])
+    assert cli.main(["claude", "off"]) == 0
+    settings = json.loads((claude_dir / "settings.json").read_text())
+    assert buddy_commands(settings) == []
+    assert "UserPromptSubmit" not in settings["hooks"]
+    assert settings["hooks"]["Stop"] == [{"hooks": [{"type": "command", "command": "notify-send done"}]}]
+
+
+def test_claude_on_refuses_invalid_json(claude_dir, capsys):
+    (claude_dir / "settings.json").write_text("{not json")
+    assert cli.main(["claude", "on"]) == 1
+    assert (claude_dir / "settings.json").read_text() == "{not json"
+    assert "settings.json" in capsys.readouterr().err
+
+
+def test_event_signals_running_buddy(monkeypatch):
+    monkeypatch.setattr(cli, "read_pid", lambda: 4242)
+    sent = []
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    assert cli.main(["event", "thinking"]) == 0
+    assert cli.main(["event", "done"]) == 0
+    assert sent == [(4242, signal.SIGUSR1), (4242, signal.SIGUSR2)]
+
+
+def test_event_without_running_buddy_is_silent(capsys):
+    assert cli.main(["event", "done"]) == 0
+    assert capsys.readouterr() == ("", "")
+
+
+
+# --- review fixes ---------------------------------------------------------------
+
+
+def test_lookalike_process_is_not_mistaken_for_buddy():
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", "buddy", "run"])  # e.g. `uv run buddy`
+    try:
+        cli.pid_path().write_text(str(other.pid))
+        assert cli.read_pid() is None
+    finally:
+        other.kill()
+        other.wait()
+
+
+def test_run_with_invalid_config_keeps_the_chosen_pokemon(monkeypatch, capsys):
+    path = config.config_path()
+    path.parent.mkdir(parents=True)
+    path.write_text('pokemon = "eevee"\nstyle = "ds"\nscale = 10\n')
+    asked = []
+    monkeypatch.setattr(sprites, "load_cached", lambda name, style: asked.append((name, style)) or object())
+    monkeypatch.setitem(sys.modules, "buddy.window", None)
+    cli.main(["run"])
+    assert asked == [("eevee", "ds")]
+    assert "scale" in capsys.readouterr().err
+
+
+def test_config_command_warns_when_sprite_is_not_downloaded(monkeypatch, capsys):
+    monkeypatch.setenv("EDITOR", "true")
+    monkeypatch.delenv("VISUAL", raising=False)
+    config.save(config.Config(pokemon="eevee"))
+    sent = []
+    monkeypatch.setattr(cli, "read_pid", lambda: 4242)
+    monkeypatch.setattr(cli.os, "kill", lambda pid, sig: sent.append(sig))
+    assert cli.main(["config"]) == 1
+    out, err = capsys.readouterr()
+    assert "buddy choose eevee" in err
+    assert "reloaded" not in out
+    assert sent == []
+
+
+def test_claude_on_keeps_file_permissions(claude_dir):
+    settings = claude_dir / "settings.json"
+    settings.write_text('{"env": {"API_KEY": "secret"}}')
+    settings.chmod(0o600)
+    assert cli.main(["claude", "on"]) == 0
+    assert settings.stat().st_mode & 0o777 == 0o600
+    assert (claude_dir / "settings.json.buddy-backup").stat().st_mode & 0o777 == 0o600
+
+
+def test_claude_on_writes_through_a_symlinked_settings_file(claude_dir, tmp_path):
+    real = tmp_path / "dotfiles" / "settings.json"
+    real.parent.mkdir()
+    real.write_text('{"model": "opus"}')
+    (claude_dir / "settings.json").symlink_to(real)
+    assert cli.main(["claude", "on"]) == 0
+    assert (claude_dir / "settings.json").is_symlink()
+    assert "event thinking" in real.read_text()
+
+
+# --- other AI agents (Gemini CLI, Codex) -------------------------------------------
+
+
+@pytest.fixture
+def agent_home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.setattr(cli, "buddy_executable", lambda: "/opt/buddy/bin/buddy")
+    return home
+
+
+def installed(monkeypatch, *names):
+    monkeypatch.setattr(cli.shutil, "which", lambda name: f"/usr/bin/{name}" if name in names else None)
+
+
+def test_gemini_hooks_use_before_and_after_agent_with_json_output(agent_home):
+    assert cli.main(["agents", "on", "gemini"]) == 0
+    settings = json.loads((agent_home / ".gemini" / "settings.json").read_text())
+    before = settings["hooks"]["BeforeAgent"][0]["hooks"][0]
+    after = settings["hooks"]["AfterAgent"][0]["hooks"][0]
+    assert before["command"] == '"/opt/buddy/bin/buddy" event thinking --json'
+    assert after["command"] == '"/opt/buddy/bin/buddy" event done --json'
+    assert before["type"] == "command" and before["timeout"] == 5000  # Gemini timeouts are milliseconds
+    assert before["name"] == "buddy-thinking"
+
+
+def test_codex_hooks_go_in_hooks_json(agent_home):
+    assert cli.main(["agents", "on", "codex"]) == 0
+    settings = json.loads((agent_home / ".codex" / "hooks.json").read_text())
+    assert settings["hooks"]["UserPromptSubmit"][0]["hooks"][0] == {
+        "type": "command",
+        "command": '"/opt/buddy/bin/buddy" event thinking',
+        "timeout": 5,
+    }
+    assert settings["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("event done")
+
+
+def test_agents_on_sets_up_every_installed_agent(agent_home, monkeypatch, capsys):
+    installed(monkeypatch, "claude", "codex")
+    assert cli.main(["agents", "on"]) == 0
+    assert (agent_home / ".claude" / "settings.json").exists()
+    assert (agent_home / ".codex" / "hooks.json").exists()
+    assert not (agent_home / ".gemini").exists()
+    out = capsys.readouterr().out
+    assert "Claude Code" in out and "Codex" in out
+
+
+def test_agents_on_with_nothing_installed_says_so(agent_home, monkeypatch, capsys):
+    installed(monkeypatch)
+    assert cli.main(["agents", "on"]) == 0
+    assert "No supported AI agent" in capsys.readouterr().out
+
+
+def test_agents_off_removes_buddy_from_every_agent(agent_home, monkeypatch):
+    installed(monkeypatch, "claude", "gemini", "codex")
+    cli.main(["agents", "on"])
+    assert cli.main(["agents", "off"]) == 0
+    for path in (".claude/settings.json", ".gemini/settings.json", ".codex/hooks.json"):
+        assert buddy_commands(json.loads((agent_home / path).read_text())) == []
+
+
+def test_codex_home_is_respected(agent_home, tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    cli.main(["agents", "on", "codex"])
+    assert (tmp_path / "codex-home" / "hooks.json").exists()
+
+
+def test_event_json_prints_an_empty_object_for_gemini(capsys):
+    assert cli.main(["event", "thinking", "--json"]) == 0
+    assert capsys.readouterr() == ("{}\n", "")

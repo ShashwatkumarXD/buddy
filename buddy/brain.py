@@ -10,12 +10,15 @@ class State(Enum):
     DRAGGED = "dragged"
     FALLING = "falling"
     STRESSED = "stressed"
+    THINKING = "thinking"
 
 
 class Bubble(Enum):
     LOVE = "love"
     CONFUSED = "confused"
     ANGRY = "angry"
+    EXCLAIM = "exclaim"
+    THINKING = "thinking"
 
 
 @dataclass(frozen=True)
@@ -37,7 +40,12 @@ WALK_SECONDS = (3.0, 8.0)
 FIDGET_SPEED = 15.0
 FIDGET_RANGE = 4.0
 MAX_DT = 0.1
-_GROUND_STATES = (State.IDLE, State.WALK, State.STRESSED)
+HURRY_SPEED = 150.0
+THINK_SPOT_FROM_RIGHT = 0.15
+THINK_TIMEOUT = 600.0
+EXCLAIM_SECONDS = 2.5
+HOPS_WHEN_DONE = 3
+_GROUND_STATES = (State.IDLE, State.WALK, State.STRESSED, State.THINKING)
 
 
 class Brain:
@@ -59,10 +67,27 @@ class Brain:
         self._press = None
         self._confused_on_land = False
         self._fidget_origin = self.x
+        self.thinking = False
+        self._think_left = 0.0
+        self._exclaim_left = 0.0
+        self._hops_left = 0
 
     @property
     def ground_y(self) -> float:
         return float(self.bounds.floor - self.height)
+
+    @property
+    def thinking_x(self) -> float:
+        """Where the pet waits while Claude works: 15% of the screen in from the right edge."""
+        b = self.bounds
+        x = b.right - self.width - THINK_SPOT_FROM_RIGHT * (b.right - b.left)
+        return float(min(max(x, b.left), b.right - self.width))
+
+    @property
+    def moving(self) -> bool:
+        if self.state in (State.WALK, State.FALLING, State.DRAGGED):
+            return True
+        return self.state is State.THINKING and abs(self.x - self.thinking_x) > 0.5
 
     @property
     def bubble(self) -> Bubble | None:
@@ -72,6 +97,10 @@ class Brain:
             return Bubble.LOVE
         if self._confused_left > 0:
             return Bubble.CONFUSED
+        if self._exclaim_left > 0:
+            return Bubble.EXCLAIM
+        if self.thinking:
+            return Bubble.THINKING
         if self.stressed:
             return Bubble.ANGRY
         return None
@@ -84,6 +113,27 @@ class Brain:
         self.stressed = stressed
         if self.state in _GROUND_STATES:
             self._settle()
+
+    def claude_thinking(self) -> None:
+        self.thinking = True
+        self._think_left = THINK_TIMEOUT
+        self._exclaim_left = 0.0
+        self._hops_left = 0
+        if self.state in _GROUND_STATES:
+            self._settle()
+
+    def claude_done(self) -> None:
+        self.thinking = False
+        self._exclaim_left = EXCLAIM_SECONDS
+        if self.state is State.DRAGGED:
+            return
+        self._confused_on_land = False
+        if self.state is State.FALLING:
+            self._hops_left = HOPS_WHEN_DONE
+        else:
+            self.state = State.FALLING
+            self.vy = -HOP_SPEED
+            self._hops_left = HOPS_WHEN_DONE - 1
 
     def set_bounds(self, bounds: Bounds) -> None:
         self.bounds = bounds
@@ -106,6 +156,7 @@ class Brain:
                 return
             self.state = State.DRAGGED
             self.vy = 0.0
+            self._hops_left = 0
             self._love_left = 0.0
             self._confused_left = 0.0
         self.x, self.y = self._clamp(px - grab_x, py - grab_y)
@@ -131,6 +182,13 @@ class Brain:
         dt = min(max(dt, 0.0), MAX_DT)
         self._love_left = max(0.0, self._love_left - dt)
         self._confused_left = max(0.0, self._confused_left - dt)
+        self._exclaim_left = max(0.0, self._exclaim_left - dt)
+        if self.thinking:
+            self._think_left -= dt
+            if self._think_left <= 0:
+                self.thinking = False
+                if self.state is State.THINKING:
+                    self._settle()
         if self.state is State.FALLING:
             self._fall(dt)
         elif self.state is State.STRESSED:
@@ -139,6 +197,8 @@ class Brain:
             self._idle(dt)
         elif self.state is State.WALK:
             self._walk(dt)
+        elif self.state is State.THINKING:
+            self._go_to_thinking_spot(dt)
 
     def _fall(self, dt: float) -> None:
         self.vy += GRAVITY * dt
@@ -146,6 +206,10 @@ class Brain:
         if self.y >= self.ground_y:
             self.y = self.ground_y
             self.vy = 0.0
+            if self._hops_left > 0:
+                self._hops_left -= 1
+                self.vy = -HOP_SPEED
+                return
             if self._confused_on_land:
                 self._confused_left = CONFUSED_SECONDS
             self._settle()
@@ -170,6 +234,15 @@ class Brain:
             self.state = State.IDLE
             self._timer = self.rng.uniform(*IDLE_SECONDS)
 
+    def _go_to_thinking_spot(self, dt: float) -> None:
+        dx = self.thinking_x - self.x
+        step = HURRY_SPEED * dt
+        if abs(dx) <= step:
+            self.x = self.thinking_x
+            return
+        self.facing = 1 if dx > 0 else -1
+        self.x += self.facing * step
+
     def _fidget(self, dt: float) -> None:
         self.x += self.facing * FIDGET_SPEED * dt
         lo, hi = self._fidget_origin - FIDGET_RANGE, self._fidget_origin + FIDGET_RANGE
@@ -181,7 +254,9 @@ class Brain:
 
     def _settle(self) -> None:
         """Enter the right on-the-ground state."""
-        if self.stressed:
+        if self.thinking:
+            self.state = State.THINKING
+        elif self.stressed:
             self.state = State.STRESSED
             b = self.bounds
             self._fidget_origin = min(max(self.x, b.left + FIDGET_RANGE), b.right - self.width - FIDGET_RANGE)

@@ -7,6 +7,7 @@ Three styles:
   facing right), falling back to the still Emerald battle sprite.
 - "ds": Black/White animated battle sprite (facing left), falling back to the still sprite.
 """
+import http.client
 import io
 import json
 import os
@@ -17,6 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -241,8 +243,9 @@ def _hgss_anims(info: SpriteInfo, fetch_bytes, root: Path, notes: list[str] | No
     if info.id <= HGSS_MAX_ID:
         poses = {"walk": ("right", "right/frame2"), "idle": ("down", "down/frame2")}
         timing = {"walk": HGSS_STEP_MS, "idle": HGSS_IDLE_MS}
+        pack_path = _hgss_pack(fetch_bytes, root)
         try:
-            with tarfile.open(_hgss_pack(fetch_bytes, root)) as pack:
+            with tarfile.open(pack_path) as pack:
                 anims = {
                     key: [(_read_pack_image(pack, f"pokemon/overworld/{pose}/{info.id}.png"), timing[key]) for pose in pair]
                     for key, pair in poses.items()
@@ -250,6 +253,8 @@ def _hgss_anims(info: SpriteInfo, fetch_bytes, root: Path, notes: list[str] | No
             return anims, 1
         except KeyError:
             pass
+        except _PACK_ERRORS as e:
+            raise SpriteError(f"The HeartGold/SoulSilver sprite pack is unreadable ({e}). Run the command again.") from None
     if notes is not None:
         notes.append(f"No HeartGold/SoulSilver follower sprite for {info.name}; using Mystery Dungeon style instead.")
     return _gba_anims(info, fetch_bytes, notes)
@@ -259,21 +264,33 @@ def _hgss_pack(fetch_bytes, root: Path) -> Path:
     """Path to veekun's overworld pack, downloading it once (again if the cached copy is unreadable)."""
     pack = root / HGSS_PACK_FILE
     if pack.exists():
-        try:
-            with tarfile.open(pack) as tar:
-                tar.getmembers()
+        if _readable_pack(pack):
             return pack
-        except (tarfile.TarError, OSError, EOFError):
-            pack.unlink()
+        pack.unlink()
     try:
         data = fetch_bytes(HGSS_PACK_URL)
-    except OSError as e:
+    except (OSError, http.client.HTTPException) as e:
         raise SpriteError(f"Could not download the HeartGold/SoulSilver sprite pack ({e}).") from None
     root.mkdir(parents=True, exist_ok=True)
     tmp = pack.with_suffix(".part")
     tmp.write_bytes(data)
+    if not _readable_pack(tmp):
+        tmp.unlink(missing_ok=True)
+        raise SpriteError("The HeartGold/SoulSilver sprite pack didn't download correctly. Run the command again.")
     tmp.rename(pack)
     return pack
+
+
+_PACK_ERRORS = (tarfile.TarError, EOFError, zlib.error, OSError)
+
+
+def _readable_pack(path: Path) -> bool:
+    try:
+        with tarfile.open(path) as tar:
+            tar.getmembers()
+        return True
+    except _PACK_ERRORS:
+        return False
 
 
 def _read_pack_image(pack: tarfile.TarFile, member: str) -> Image.Image:
