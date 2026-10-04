@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "buddy"
+version = "0.1.0"
+description = "A Pokémon desktop buddy that shows when your laptop is stressed"
+requires-python = ">=3.11"
+dependencies = ["psutil", "Pillow"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+buddy = "buddy.cli:main"
+
+[tool.setuptools]
+packages = ["buddy"]
+
+[tool.setuptools.package-data]
+buddy = ["assets/bubbles/*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
