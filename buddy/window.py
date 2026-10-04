@@ -438,7 +438,7 @@ def run(cfg: Config, cached: sprites.CachedSprite) -> int:
     if app.platformName() == "xcb":
         _x11_all_workspaces([buddy.pet, buddy.decor])
     buddy.show()
-    if sys.platform == "darwin":
+    if sys.platform == "darwin" and app.platformName() == "cocoa":  # winId() is an NSView only on cocoa
         _mac_tweaks([buddy.pet, buddy.decor])
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: app.quit())

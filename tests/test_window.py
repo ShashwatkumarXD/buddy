@@ -101,6 +101,20 @@ def test_shutdown_removes_the_contact_file(qapp, runtime, cached):
     assert not ipc.port_file().exists()
 
 
+def test_mac_tweaks_only_touch_real_macos_windows(qapp, runtime, cached, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    from buddy import window
+
+    monkeypatch.setattr(window.sys, "platform", "darwin")
+    monkeypatch.setattr(window.signal, "signal", lambda *args: None)  # keep pytest's Ctrl+C
+    monkeypatch.setattr(QApplication, "exec", lambda *args: 0)  # return instead of looping
+    tweaked = []
+    monkeypatch.setattr(window, "_mac_tweaks", tweaked.append)
+    assert window.run(config.Config(), cached) == 0
+    assert tweaked == []  # offscreen windows aren't NSViews; messaging them crashes buddy
+
+
 def test_missing_x11_libraries_are_reported(monkeypatch):
     from buddy import window
 
