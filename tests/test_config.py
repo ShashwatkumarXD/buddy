@@ -1,7 +1,7 @@
 import pytest
 
 from buddy import config
-from buddy.config import Config, StressConfig
+from buddy.config import Config, StressConfig, TalkConfig
 
 
 def test_missing_file_gives_defaults(tmp_path):
@@ -9,6 +9,7 @@ def test_missing_file_gives_defaults(tmp_path):
     assert cfg == Config()
     assert (cfg.pokemon, cfg.style, cfg.scale, cfg.walk_speed) == ("pikachu", "hgss", 2, 20)
     assert cfg.stress == StressConfig(85, 90, 70, 85, 5)
+    assert cfg.talk == TalkConfig(enabled=True, sleep_reminders=2)
 
 
 def test_round_trip(tmp_path):
@@ -18,6 +19,7 @@ def test_round_trip(tmp_path):
         scale=3,
         walk_speed=35.5,
         stress=StressConfig(cpu_enter=80, ram_enter=92, cpu_exit=60, ram_exit=80, window_seconds=8),
+        talk=TalkConfig(enabled=False, sleep_reminders=4),
     )
     path = tmp_path / "sub" / "config.toml"
     config.save(cfg, path)
@@ -60,6 +62,10 @@ def test_default_path_is_in_the_platform_config_folder():
         ("[stress]\nwindow_seconds = 0\n", "window_seconds"),
         ("stress = 3\n", "stress"),
         ('style = "snes"\n', "style"),
+        ("talk = 1\n", "talk"),
+        ('[talk]\nenabled = "yes"\n', "enabled"),
+        ("[talk]\nsleep_reminders = -1\n", "sleep_reminders"),
+        ("[talk]\nsleep_reminders = 11\n", "sleep_reminders"),
     ],
 )
 def test_invalid_config_raises_clear_error(tmp_path, text, message):

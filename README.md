@@ -27,6 +27,10 @@ while Claude Code, Gemini CLI or Codex is working.
 - **Keeps your AI agent company.** When you send a prompt to Claude Code, Gemini CLI or Codex,
   it hurries to the right side of the screen and reads a book while the agent works. When the
   agent finishes, it jumps up and down with a ❗.
+- **Says hello.** A few minutes after you open your laptop it waves "Good morning!" (or good
+  afternoon, or good evening), and now and then it greets you with a wave, a sparkly "Hi beautiful!"
+  or just a big smile 😊. Still up after 11 PM? It asks if you're still building something, then
+  reminds you to get some sleep.
 - **Stays out of your way.** Clicks right next to it go through to the window underneath.
 
 <p align="center">
@@ -134,6 +138,8 @@ your changes and reloads.
 | `cpu_enter` / `ram_enter` | `85` / `90` | Buddy gets stressed when average CPU or RAM use (%) reaches these. |
 | `cpu_exit` / `ram_exit` | `70` / `85` | It calms down only when usage stays below these. |
 | `window_seconds` | `5` | How many seconds usage has to stay high (or low) before Buddy reacts. |
+| `enabled` (in `[talk]`) | `true` | Set to `false` and Buddy keeps its hellos and bedtime nudges to itself. |
+| `sleep_reminders` (in `[talk]`) | `2` | How many times it nudges you to sleep after 11 PM (0–10). |
 
 ### Sprite styles
 

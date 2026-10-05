@@ -1,0 +1,186 @@
+# Everything buddy says now and then. Add or remove lines freely.
+# Letters, digits, spaces and  . , ! ? ' - : ~ ♥  are drawn; anything else can't be shown.
+#
+# Each list belongs to a bubble style:
+#   wave    – a waving hand beside the words
+#   sparkle – the words type out while sparkles twinkle
+#   rizz    – the words type out while little hearts float up
+#   smile   – a smiley that blinks and grins beside the words
+#   quote   – the words in a still cloud
+#   type    – the words type themselves out
+
+[greetings]
+wave = [
+    "Hi!",
+    "Hey!",
+    "Hello!",
+    "Hiya!",
+    "Heya!",
+    "Yo!",
+    "Howdy!",
+    "Hey there!",
+    "Hello, friend!",
+    "Hi hi!",
+    "Oh hey, it's you!",
+    "Hey you!",
+    "Ahoy!",
+    "Peekaboo!",
+    "Hello hello!",
+    "Hey buddy!",
+]
+sparkle = [
+    "Hi beautiful!",
+    "Hey gorgeous!",
+    "Hello sunshine!",
+    "Hey superstar!",
+    "Hi cutie!",
+    "Hey legend!",
+    "Hello, genius!",
+    "Hi, good looking!",
+    "Hey, rockstar!",
+    "Hello, brilliant!",
+    "Hi, absolute icon!",
+    "Hey, main character!",
+    "Hello, star coder!",
+    "Hi, favourite human!",
+]
+rizz = [
+    "Are you a keyboard? Cause you're just my type.",
+    "You had me at Hello World.",
+    "Are you a git commit? Cause I'm committed.",
+    "If you were a bug, I'd never fix you.",
+    "You must be a merge, you resolve all my conflicts.",
+    "Are you Wi-Fi? I'm feeling a connection.",
+    "Are you a Poke Ball? Cause I choose you!",
+    "You're rarer than a shiny.",
+    "My HP goes up every time you smile.",
+    "You're the CSS to my HTML.",
+    "Even my pixels blush around you.",
+    "You must be dark mode, you're easy on the eyes.",
+    "Is your code compiling? Cause you look fine.",
+    "Are you a loop? I can't stop thinking of you.",
+    "You're my favourite notification. ♥",
+    "I'd follow you to any branch.",
+    "Are you a 404? Cause you're all I'm looking for.",
+    "You make my heart run at 144 fps.",
+]
+smile = [
+    "You're doing great!",
+    "Proud of you!",
+    "Look at you go!",
+    "You got this!",
+    "Keep shining!",
+    "I believe in you!",
+    "Today is a good day!",
+    "You make this look easy!",
+    "Nice work today!",
+    "Big things are coming!",
+    "Have you smiled today?",
+    "Drink some water!",
+    "Take a deep breath.",
+    "Stretch a little!",
+    "You're on a roll!",
+    "Happy to be here with you!",
+    "That was smart!",
+    "You're my favourite person to watch code.",
+]
+
+[quotes]
+lines = [
+    "Small steps still move you forward.",
+    "Progress, not perfection.",
+    "Every expert was once a beginner.",
+    "Rest is productive too.",
+    "Slow progress is still progress.",
+    "Happiness is homemade.",
+    "Do more of what makes you happy.",
+    "Breathe. You're doing fine.",
+    "The best views come after the hardest climbs.",
+    "Stars can't shine without darkness.",
+    "Be the reason someone smiles today.",
+    "Good things take time.",
+    "Your only competition is yesterday's you.",
+    "Done is better than perfect.",
+    "One day at a time.",
+    "Make today count.",
+    "Joy lives in the little things.",
+    "Celebrate the small wins.",
+    "Choose kindness, always.",
+    "You are enough, just as you are.",
+    "Dream big, start small.",
+    "It's okay to take a break.",
+    "Every day is a fresh start.",
+    "Grow through what you go through.",
+    "Collect moments, not things.",
+    "Be patient. Seeds take time.",
+    "Mistakes mean you're trying.",
+    "Keep going. You're closer than you think.",
+    "Life is better when you're laughing.",
+    "Stay curious.",
+    "Where focus goes, energy flows.",
+    "Be proud of how far you've come.",
+    "Today's effort is tomorrow's strength.",
+    "Sunshine is a state of mind.",
+    "Water your own garden.",
+    "Not every day is good, but there is good in every day.",
+    "Little by little, a little becomes a lot.",
+    "Simple things bring the most joy.",
+    "Be gentle with yourself.",
+    "Small habits, big changes.",
+    "Ship it, then make it better.",
+    "The comeback is always stronger.",
+    "Call someone you love today.",
+    "Peace begins with a smile.",
+    "Bugs are just lessons in disguise.",
+    "You don't need to have it all figured out.",
+    "Be a voice, not an echo.",
+    "Do it with love, or not at all.",
+    "Comparison steals joy. Run your own race.",
+    "Good vibes only.",
+    "Your future self will thank you.",
+    "Kindness is free. Spend it everywhere.",
+    "Make it work, make it right, make it fun.",
+    "The sun will rise and we will try again.",
+    "Happiness looks good on you.",
+    "Enjoy the little detours.",
+    "A calm mind writes clean code.",
+    "Be curious, not judgmental.",
+    "You can do hard things.",
+    "Today is a good day to have a good day.",
+]
+
+[time]
+morning = [
+    "Good morning!",
+    "Good morning, sunshine!",
+    "Rise and shine!",
+    "Morning! Ready to build?",
+    "Good morning! Coffee first?",
+    "Good morning! New day, new commits.",
+]
+afternoon = [
+    "Good afternoon!",
+    "Afternoon! Had lunch yet?",
+    "Good afternoon! Keep it going.",
+    "Afternoon check-in: you're doing great!",
+]
+evening = [
+    "Good evening!",
+    "Evening! How was your day?",
+    "Good evening, superstar!",
+    "Good evening! Time to slow down a bit?",
+]
+late_night = [
+    "Are you still building something?",
+    "Still up? What are we building?",
+    "Burning the midnight oil?",
+    "Night owl mode, huh?",
+]
+sleep = [
+    "It's late. Time to sleep?",
+    "Your bed misses you.",
+    "Sleep is a feature, not a bug.",
+    "Save your work and get some rest!",
+    "Even servers need downtime. Sleep!",
+    "Good night! Dream in code.",
+]

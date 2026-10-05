@@ -183,3 +183,79 @@ def test_images_are_scaled_straight_to_screen_pixels(pixels, scale, dpr, device)
     from buddy import window
 
     assert window.device_pixels(pixels, scale, dpr) == device
+
+
+# --- speech ------------------------------------------------------------------
+
+
+def _opaque(widget) -> int:
+    image = widget.grab().toImage()
+    return sum(1 for y in range(0, image.height(), 2) for x in range(0, image.width(), 2) if image.pixelColor(x, y).alpha() > 0)
+
+
+def test_speech_shows_in_its_own_window_above_buddy(buddy):
+    from buddy.chatter import Say
+
+    buddy.speak(Say("greeting", "sparkle", "Hi beautiful!"))
+    pump(buddy, 0.2)
+    win = buddy.speech_window
+    assert buddy.brain.speech is not None
+    assert win.width() > buddy.pet.width()
+    assert win.y() + win.height() <= buddy.pet.y()
+    assert _opaque(win) > 50
+
+
+def test_speech_window_empties_when_a_reaction_takes_over(buddy):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from buddy.chatter import Say
+
+    buddy.speak(Say("greeting", "wave", "Hi!"))
+    buddy.on_tick()
+    QTest.mouseClick(buddy.pet, Qt.MouseButton.LeftButton)
+    buddy.on_tick()
+    assert buddy.brain.speech is None
+    assert _opaque(buddy.speech_window) == 0
+
+
+def test_speech_stays_on_screen_at_the_edge(buddy):
+    from buddy.chatter import Say
+
+    buddy.brain.x = float(buddy.brain.bounds.left)
+    buddy.speak(Say("time", "type", "Even servers need downtime. Sleep!"))
+    buddy.on_tick()
+    assert buddy.speech_window.x() >= buddy.brain.bounds.left
+
+
+def test_monitor_tick_asks_the_chatter(buddy, monkeypatch):
+    from buddy.chatter import Say
+
+    asked = []
+
+    def tick(now, idle, free):
+        asked.append(free)
+        return Say("morning", "wave", "Good morning!")
+
+    monkeypatch.setattr(buddy.chatter, "tick", tick)
+    buddy.on_monitor()
+    assert asked == [True]
+    assert buddy.brain.speech is not None
+
+
+def test_talking_can_be_switched_off(qapp, runtime, cached):
+    from buddy import window
+
+    pet = window.Buddy(qapp, config.Config(talk=config.TalkConfig(enabled=False)), cached)
+    try:
+        assert pet.chatter is None
+        pet.on_monitor()
+    finally:
+        pet.shutdown()
+
+
+@pytest.mark.parametrize("sprite_scale, factor", [(1, 2), (2, 2), (4, 2), (6, 3)])
+def test_words_are_drawn_at_least_twice_native_size(sprite_scale, factor):
+    from buddy import window
+
+    assert window.speech_scale(sprite_scale) == factor

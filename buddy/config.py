@@ -24,12 +24,19 @@ class StressConfig:
 
 
 @dataclass
+class TalkConfig:
+    enabled: bool = True  # time-of-day hellos, random greetings, late-night nudges
+    sleep_reminders: int = 2  # bedtime nudges after "are you still building something?"
+
+
+@dataclass
 class Config:
     pokemon: str = "pikachu"
     style: str = "hgss"
     scale: float = 2.0
     walk_speed: float = 20.0
     stress: StressConfig = field(default_factory=StressConfig)
+    talk: TalkConfig = field(default_factory=TalkConfig)
 
 
 def config_path() -> Path:
@@ -42,10 +49,11 @@ def load(path: Path | None = None) -> Config:
         return Config()
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-        stress = data.get("stress", {})
-        if not isinstance(stress, dict):
-            raise ConfigError("[stress] must be a table")
-        d = StressConfig()
+        stress, talk = data.get("stress", {}), data.get("talk", {})
+        for name, table in (("stress", stress), ("talk", talk)):
+            if not isinstance(table, dict):
+                raise ConfigError(f"[{name}] must be a table")
+        d, t = StressConfig(), TalkConfig()
         cfg = Config(
             pokemon=_string(data, "pokemon", Config.pokemon),
             style=_string(data, "style", Config.style),
@@ -57,6 +65,10 @@ def load(path: Path | None = None) -> Config:
                 cpu_exit=_float(stress, "cpu_exit", d.cpu_exit),
                 ram_exit=_float(stress, "ram_exit", d.ram_exit),
                 window_seconds=_int(stress, "window_seconds", d.window_seconds),
+            ),
+            talk=TalkConfig(
+                enabled=_bool(talk, "enabled", t.enabled),
+                sleep_reminders=_int(talk, "sleep_reminders", t.sleep_reminders),
             ),
         )
         validate(cfg)
@@ -96,7 +108,10 @@ def save(cfg: Config, path: Path | None = None) -> None:
         f"ram_enter = {s.ram_enter!r}\n"
         f"cpu_exit = {s.cpu_exit!r}\n"
         f"ram_exit = {s.ram_exit!r}\n"
-        f"window_seconds = {s.window_seconds}\n",
+        f"window_seconds = {s.window_seconds}\n"
+        "\n[talk]\n"
+        f"enabled = {'true' if cfg.talk.enabled else 'false'}\n"
+        f"sleep_reminders = {cfg.talk.sleep_reminders}  # bedtime nudges after 11 PM\n",
         encoding="utf-8",
     )
 
@@ -118,6 +133,8 @@ def validate(cfg: Config) -> None:
             raise ConfigError(f"{name}_exit must be lower than {name}_enter")
     if not 1 <= s.window_seconds <= 60:
         raise ConfigError("window_seconds must be between 1 and 60")
+    if not 0 <= cfg.talk.sleep_reminders <= 10:
+        raise ConfigError("sleep_reminders must be between 0 and 10")
 
 
 def _string(table: dict, key: str, default: str) -> str:
@@ -125,6 +142,13 @@ def _string(table: dict, key: str, default: str) -> str:
     if not isinstance(value, str):
         raise ConfigError(f"{key} must be text, got {value!r}")
     return value.strip().lower()
+
+
+def _bool(table: dict, key: str, default: bool) -> bool:
+    value = table.get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(f"{key} must be true or false, got {value!r}")
+    return value
 
 
 def _int(table: dict, key: str, default: int) -> int:

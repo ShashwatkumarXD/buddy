@@ -109,6 +109,8 @@ class Brain:
         self._alone = 0.0
         self._nap_left = 0.0
         self._computer_idle = False
+        self._speech = None
+        self._speech_left = 0.0
 
     @property
     def ground_y(self) -> float:
@@ -130,6 +132,17 @@ class Brain:
     @property
     def asleep(self) -> bool:
         return self.state is State.SLEEPING
+
+    @property
+    def speech(self):
+        """What it's saying (see say()), or None. Any reaction bubble or a drag cuts it short."""
+        if self._speech_left <= 0 or self.bubble is not None or self.state is State.DRAGGED:
+            return None
+        return self._speech
+
+    @property
+    def free_to_talk(self) -> bool:
+        return self.speech is None and self.bubble is None and self.state in (State.IDLE, State.WALK)
 
     @property
     def bubble(self) -> Bubble | None:
@@ -169,6 +182,11 @@ class Brain:
             self._fall_asleep(nap=0.0)
         elif not self._computer_idle and self.state is State.SLEEPING and self._nap_left <= 0:
             self._wake()
+
+    def say(self, message, seconds: float) -> None:
+        """Show a speech bubble (whatever the window draws for `message`) for this long."""
+        self._speech = message
+        self._speech_left = seconds
 
     def claude_thinking(self) -> None:
         self._alone = 0.0
@@ -260,6 +278,7 @@ class Brain:
         self._love_left = max(0.0, self._love_left - dt)
         self._confused_left = max(0.0, self._confused_left - dt)
         self._exclaim_left = max(0.0, self._exclaim_left - dt)
+        self._speech_left = max(0.0, self._speech_left - dt) if self.speech is not None else 0.0
         if self.thinking:
             self._think_left -= dt
             if self._think_left <= 0:

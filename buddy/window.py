@@ -1,9 +1,10 @@
 """Buddy on screen (Qt): works on Linux (through XWayland on Wayland), macOS and Windows.
 
-Two frameless, always-on-top tool windows that never take focus:
+Frameless, always-on-top tool windows that never take focus:
 - the *pet* window is exactly the sprite's size and receives the mouse;
-- the *decor* window draws the reaction bubble and stress panel and lets clicks through.
-(Qt can't make only part of one window click-through, hence two windows moving together.)
+- the *decor* window draws the reaction bubble and stress panel and lets clicks through;
+- the *speech* window holds what buddy is saying, sized to the words, and lets clicks through.
+(Qt can't make only part of one window click-through, hence several windows moving together.)
 """
 import ctypes
 import ctypes.util
@@ -11,6 +12,7 @@ import os
 import signal
 import sys
 import time
+from datetime import datetime
 from importlib import resources
 from pathlib import Path
 
@@ -19,9 +21,10 @@ from PySide6.QtGui import QGuiApplication, QImage, QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import QApplication, QWidget
 
 from buddy import config as config_mod
-from buddy import ipc, sprites, transcript
+from buddy import ipc, paths, speech, sprites, transcript
 from buddy.idle import IdleClock
 from buddy.brain import Bounds, Brain, Bubble
+from buddy.chatter import Chatter, Say, load_lines
 from buddy.config import Config
 from buddy.matrix import PANEL_H, PANEL_W, MatrixRain
 from buddy.monitor import StressMonitor
@@ -32,6 +35,7 @@ FPS = 30
 BUBBLE_TIMING = {Bubble.DIZZY: spin_durations, Bubble.SLEEP: drift_durations}  # the rest hold, then flip
 BUBBLE_NUDGE = {Bubble.SLEEP: 0.25}  # shift right by this share of the sprite's width (the Zs drift off to the side)
 MARGIN = 4
+SPEECH_HOLD_MS = 4000  # a speech bubble stays this long after its animation has played through
 WINDOW_FLAGS = (
     Qt.WindowType.FramelessWindowHint
     | Qt.WindowType.WindowStaysOnTopHint
@@ -70,6 +74,11 @@ def bubble_scale(sprite_scale: float) -> float:
     return max(1.0, sprite_scale / 2)
 
 
+def speech_scale(sprite_scale: float) -> float:
+    """Enlargement for speech bubbles: words need at least twice native size to be read comfortably."""
+    return max(2.0, bubble_scale(sprite_scale))
+
+
 def device_pixels(pixels: int, scale: float, dpr: float) -> int:
     """Size in real screen pixels. Images are scaled once, straight to this, and tagged with the screen's
     device-pixel ratio, so Qt never resamples the pixel art again (which shimmers at 125%/150% scaling)."""
@@ -85,6 +94,16 @@ def _pixmap(path: Path, scale: float, mirror: bool = False) -> QPixmap:
     image = QImage(str(path))
     if image.isNull():
         raise sprites.SpriteError(f"Unreadable image {path}")
+    return _scaled(image, scale, mirror)
+
+
+def _pil_pixmap(im, scale: float) -> QPixmap:
+    """A Pillow RGBA image (a rendered speech bubble) as a crisp, scaled pixmap."""
+    image = QImage(im.tobytes("raw", "RGBA"), im.width, im.height, QImage.Format.Format_RGBA8888)
+    return _scaled(image.copy(), scale)  # copy: the QImage must not outlive the bytes it was built on
+
+
+def _scaled(image: QImage, scale: float, mirror: bool = False) -> QPixmap:
     dpr = _dpr()
     image = image.scaled(
         device_pixels(image.width(), scale, dpr),
@@ -215,6 +234,15 @@ class DecorWindow(_Overlay):
         self.buddy.paint_decor(painter)
 
 
+class SpeechWindow(_Overlay):
+    def __init__(self, buddy: "Buddy"):
+        super().__init__(click_through=True)
+        self.buddy = buddy
+
+    def paint(self, painter: QPainter) -> None:
+        self.buddy.paint_speech(painter)
+
+
 class Buddy:
     """The running buddy: brain, monitors, sprite, the two windows and the IPC listener."""
 
@@ -227,10 +255,15 @@ class Buddy:
         self.monitor = StressMonitor(cfg.stress)
         self.idle = IdleClock()
         self.brain = Brain(self._bounds(), self.sprite.width, self.sprite.height, cfg.walk_speed)
+        self.chatter = self._chatter(cfg)
         self.decor = DecorWindow(self)
+        self.speech_window = SpeechWindow(self)
         self.pet = PetWindow(self)
         self._bubble_shown = None
         self._bubble_ms = 0.0
+        self._speaking = None  # (what brain.say got, the bubble's frames as pixmaps, its Animation)
+        self._speech_ms = 0.0
+        self._hush()
         self._last = time.monotonic()
         self._layout()
         self.server = ipc.Server()
@@ -274,8 +307,21 @@ class Buddy:
             self.pet.move(x, y)
             self.decor.move(x - self.sprite_off_x, y - self.sprite_off_y)
 
+    def _place_speech(self) -> None:
+        """Centre the speech bubble above the sprite, kept on screen."""
+        if self._speaking is None:
+            return
+        b = self.brain
+        w, h = self.speech_window.width(), self.speech_window.height()
+        x = int(b.x + self.sprite.width / 2 - w / 2)
+        x = min(max(x, b.bounds.left), b.bounds.right - w)
+        y = max(int(b.y) - h - MARGIN, b.bounds.top)
+        if (self.speech_window.x(), self.speech_window.y()) != (x, y):
+            self.speech_window.move(x, y)
+
     def show(self) -> None:
         self.decor.show()
+        self.speech_window.show()
         self.pet.show()  # shown last so it sits above the decor window
 
     @keep_alive
@@ -299,15 +345,27 @@ class Buddy:
             self.sprite.advance(min(dt, 0.1) * 1000)
         if self.brain.stressed:
             self.matrix.tick(dt)
+        if self._speaking is not None:
+            if self.brain.speech is self._speaking[0]:
+                self._speech_ms += dt * 1000
+            else:
+                self._hush()
         self._place()
+        self._place_speech()
         self.pet.update()
         self.decor.update()
+        self.speech_window.update()
         return True
 
     @keep_alive
     def on_monitor(self) -> bool:
         self.brain.set_stressed(self.monitor.tick())
-        self.brain.set_system_idle(self.idle.seconds())
+        idle = self.idle.seconds()
+        self.brain.set_system_idle(idle)
+        if self.chatter is not None:
+            say = self.chatter.tick(datetime.now(), idle, self.brain.free_to_talk)
+            if say is not None:
+                self.speak(say)
         if self._transcript is not None:
             if not self.brain.thinking:
                 self._transcript = None
@@ -350,6 +408,35 @@ class Buddy:
             latest = self.monitor.latest
             self.matrix.draw(painter, px, self.panel_y, latest.cpu, latest.ram)
 
+    def paint_speech(self, painter: QPainter) -> None:
+        if self._speaking is not None:
+            _, pixmaps, anim = self._speaking
+            painter.drawPixmap(0, 0, pixmaps[anim.index_at(self._speech_ms)])
+
+    # --- speech -----------------------------------------------------------------
+
+    @staticmethod
+    def _chatter(cfg: Config) -> Chatter | None:
+        if not cfg.talk.enabled:
+            return None
+        return Chatter(load_lines(), cfg.talk.sleep_reminders, paths.cache_dir() / "chatter.json")
+
+    def speak(self, say: Say) -> None:
+        anim = speech.animate(say.style, say.text)
+        pixmaps = [_pil_pixmap(im, speech_scale(self.cfg.scale)) for im in anim.images]
+        self._speaking = (say, pixmaps, anim)
+        self._speech_ms = 0.0
+        self.speech_window.setFixedSize(*logical_size(pixmaps[0]))
+        self.brain.say(say, (anim.played_ms + SPEECH_HOLD_MS) / 1000)
+        self._place_speech()
+        self.speech_window.update()
+
+    def _hush(self) -> None:
+        """Nothing to say: shrink the speech window to an invisible speck."""
+        self._speaking = None
+        self.speech_window.setFixedSize(1, 1)
+        self.speech_window.update()
+
     # --- commands ---------------------------------------------------------------
 
     @keep_alive
@@ -365,6 +452,12 @@ class Buddy:
         self.sprite = sprite
         self.bubbles = _load_bubbles(bubble_scale(cfg.scale))
         self.monitor = StressMonitor(cfg.stress)
+        if not cfg.talk.enabled:
+            self.chatter = None
+        elif self.chatter is None:
+            self.chatter = self._chatter(cfg)
+        else:
+            self.chatter.sleep_reminders = cfg.talk.sleep_reminders
         self.brain.walk_speed = cfg.walk_speed
         self.brain.resize(self.sprite.width, self.sprite.height)
         self._layout()
@@ -377,6 +470,7 @@ class Buddy:
         self.server.close()
         self.pet.close()
         self.decor.close()
+        self.speech_window.close()
 
 
 # --- X11 (Linux, incl. XWayland): show on every workspace ----------------------------------------
@@ -461,10 +555,10 @@ def run(cfg: Config, cached: sprites.CachedSprite) -> int:
         print(f"buddy: {e}", file=sys.stderr)
         return 1
     if app.platformName() == "xcb":
-        _x11_all_workspaces([buddy.pet, buddy.decor])
+        _x11_all_workspaces([buddy.pet, buddy.decor, buddy.speech_window])
     buddy.show()
     if sys.platform == "darwin" and app.platformName() == "cocoa":  # winId() is an NSView only on cocoa
-        _mac_tweaks([buddy.pet, buddy.decor])
+        _mac_tweaks([buddy.pet, buddy.decor, buddy.speech_window])
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: app.quit())
     try:
