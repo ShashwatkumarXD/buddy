@@ -314,7 +314,7 @@ class Buddy:
         bubble = b.bubble
         if bubble is not None:
             frames = self.bubbles[bubble]
-            timing = spin_durations if bubble is Bubble.SCRIBBLE else bubble_durations
+            timing = spin_durations if bubble is Bubble.DIZZY else bubble_durations
             pb = frames[frame_at(self._bubble_ms, timing(len(frames)))]
             bw, bh = logical_size(pb)
             bx = self.sprite_off_x + (self.sprite.width - bw) // 2

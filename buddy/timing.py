@@ -2,7 +2,7 @@
 
 BUBBLE_HOLD_MS = 700  # first frame: the bubble at rest
 BUBBLE_STEP_MS = 110  # each following frame (e.g. a turning page)
-SPIN_STEP_MS = 90  # every frame of a bubble that never rests (the dizzy scribble)
+SPIN_STEP_MS = 90  # every frame of a bubble that never rests (the circling dizzy stars)
 
 
 def bubble_durations(frame_count: int) -> list[int]:

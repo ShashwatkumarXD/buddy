@@ -19,7 +19,7 @@ class Bubble(Enum):
     ANGRY = "angry"
     EXCLAIM = "exclaim"
     THINKING = "thinking"
-    SCRIBBLE = "scribble"
+    DIZZY = "dizzy"
 
 
 class _ShakeMeter:
@@ -67,10 +67,10 @@ THINK_SPOT_FROM_RIGHT = 0.15
 THINK_TIMEOUT = 600.0
 EXCLAIM_SECONDS = 2.5
 HOPS_WHEN_DONE = 3
-SHAKE_TRAVEL = 25.0  # pixels the pointer must swing one way before turning back counts
-SHAKE_SWINGS = 4  # turn-backs within SHAKE_WINDOW that make it dizzy
-SHAKE_WINDOW = 1.2
-SCRIBBLE_SECONDS = 2.5
+SHAKE_TRAVEL = 40.0  # pixels the pointer must swing one way before turning back counts
+SHAKE_SWINGS = 6  # turn-backs within SHAKE_WINDOW that make it dizzy
+SHAKE_WINDOW = 1.5
+DIZZY_SECONDS = 2.5
 _GROUND_STATES = (State.IDLE, State.WALK, State.STRESSED, State.THINKING)
 
 
@@ -99,7 +99,7 @@ class Brain:
         self._hops_left = 0
         self._clock = 0.0
         self._shake = None
-        self._scribble_left = 0.0
+        self._dizzy_left = 0.0
 
     @property
     def ground_y(self) -> float:
@@ -120,8 +120,8 @@ class Brain:
 
     @property
     def bubble(self) -> Bubble | None:
-        if self._scribble_left > 0:
-            return Bubble.SCRIBBLE
+        if self._dizzy_left > 0:
+            return Bubble.DIZZY
         if self.state is State.DRAGGED:
             return None
         if self._love_left > 0:
@@ -192,7 +192,7 @@ class Brain:
             self._confused_left = 0.0
             self._shake = (_ShakeMeter(start_x), _ShakeMeter(start_y))
         if max(meter.move(pos, self._clock) for meter, pos in zip(self._shake, (px, py))) >= SHAKE_SWINGS:
-            self._scribble_left = SCRIBBLE_SECONDS
+            self._dizzy_left = DIZZY_SECONDS
         self.x, self.y = self._clamp(px - grab_x, py - grab_y)
 
     def release(self, px: float, py: float) -> None:
@@ -216,7 +216,7 @@ class Brain:
     def tick(self, dt: float) -> None:
         dt = min(max(dt, 0.0), MAX_DT)
         self._clock += dt
-        self._scribble_left = max(0.0, self._scribble_left - dt)
+        self._dizzy_left = max(0.0, self._dizzy_left - dt)
         self._love_left = max(0.0, self._love_left - dt)
         self._confused_left = max(0.0, self._confused_left - dt)
         self._exclaim_left = max(0.0, self._exclaim_left - dt)
@@ -248,8 +248,8 @@ class Brain:
                 self.vy = -HOP_SPEED
                 return
             if self._confused_on_land:
-                if self._scribble_left > 0:  # it was shaken: stays dizzy for a while after landing
-                    self._scribble_left = SCRIBBLE_SECONDS
+                if self._dizzy_left > 0:  # it was shaken: stays dizzy for a while after landing
+                    self._dizzy_left = DIZZY_SECONDS
                 else:
                     self._confused_left = CONFUSED_SECONDS
             self._settle()

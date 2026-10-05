@@ -6,7 +6,7 @@ from buddy.brain import (
     FIDGET_RANGE,
     IDLE_SECONDS,
     LOVE_SECONDS,
-    SCRIBBLE_SECONDS,
+    DIZZY_SECONDS,
     SHAKE_SWINGS,
     SHAKE_TRAVEL,
     SHAKE_WINDOW,
@@ -325,17 +325,17 @@ def shake(brain, swings, swing=SHAKE_TRAVEL + 15, seconds_per_swing=0.1, vertica
     return px, py
 
 
-def test_shaking_while_held_makes_it_dizzy_with_scribble():
+def test_shaking_while_held_makes_it_dizzy():
     b = make()
     shake(b, SHAKE_SWINGS)
     assert b.state is State.DRAGGED
-    assert b.bubble is Bubble.SCRIBBLE  # shown while still being held
+    assert b.bubble is Bubble.DIZZY  # shown while still being held
 
 
 def test_shaking_up_and_down_counts_too():
     b = make()
     shake(b, SHAKE_SWINGS, vertical=True)
-    assert b.bubble is Bubble.SCRIBBLE
+    assert b.bubble is Bubble.DIZZY
 
 
 def test_a_few_swings_are_just_a_drag():
@@ -363,15 +363,15 @@ def test_dizzy_after_landing_instead_of_confused():
     run(b, 2.0)
     assert b.y == b.ground_y
     assert b.state is State.IDLE
-    assert b.bubble is Bubble.SCRIBBLE
-    run(b, SCRIBBLE_SECONDS)
+    assert b.bubble is Bubble.DIZZY
+    run(b, DIZZY_SECONDS)
     assert b.bubble is None  # not confused afterwards either
 
 
-def test_scribble_fades_if_held_still_after_shaking():
+def test_dizziness_fades_if_held_still_after_shaking():
     b = make()
     px, py = shake(b, SHAKE_SWINGS)
-    run(b, SCRIBBLE_SECONDS + 0.1)
+    run(b, DIZZY_SECONDS + 0.1)
     assert b.bubble is None
     b.release(px, py)
     run(b, 0.2)
