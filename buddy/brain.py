@@ -11,6 +11,7 @@ class State(Enum):
     FALLING = "falling"
     STRESSED = "stressed"
     THINKING = "thinking"
+    SLEEPING = "sleeping"
 
 
 class Bubble(Enum):
@@ -20,6 +21,7 @@ class Bubble(Enum):
     EXCLAIM = "exclaim"
     THINKING = "thinking"
     DIZZY = "dizzy"
+    SLEEP = "sleep"
 
 
 class _ShakeMeter:
@@ -71,7 +73,11 @@ SHAKE_TRAVEL = 40.0  # pixels the pointer must swing one way before turning back
 SHAKE_SWINGS = 6  # turn-backs within SHAKE_WINDOW that make it dizzy
 SHAKE_WINDOW = 1.5
 DIZZY_SECONDS = 2.5
-_GROUND_STATES = (State.IDLE, State.WALK, State.STRESSED, State.THINKING)
+LONELY_SECONDS = 180.0  # no clicks, drags or Claude activity for this long and it may nap
+NAP_CHANCE = 0.15  # each time it stops walking while lonely
+NAP_SECONDS = (20.0, 60.0)
+SYSTEM_IDLE_SECONDS = 300.0  # nobody has touched the computer for this long: asleep until they're back
+_GROUND_STATES = (State.IDLE, State.WALK, State.STRESSED, State.THINKING, State.SLEEPING)
 
 
 class Brain:
@@ -100,6 +106,9 @@ class Brain:
         self._clock = 0.0
         self._shake = None
         self._dizzy_left = 0.0
+        self._alone = 0.0
+        self._nap_left = 0.0
+        self._computer_idle = False
 
     @property
     def ground_y(self) -> float:
@@ -119,6 +128,10 @@ class Brain:
         return self.state is State.THINKING and abs(self.x - self.thinking_x) > 0.5
 
     @property
+    def asleep(self) -> bool:
+        return self.state is State.SLEEPING
+
+    @property
     def bubble(self) -> Bubble | None:
         if self._dizzy_left > 0:
             return Bubble.DIZZY
@@ -134,6 +147,8 @@ class Brain:
             return Bubble.THINKING
         if self.stressed:
             return Bubble.ANGRY
+        if self.state is State.SLEEPING:
+            return Bubble.SLEEP
         return None
 
     # --- external inputs -------------------------------------------------
@@ -145,7 +160,18 @@ class Brain:
         if self.state in _GROUND_STATES:
             self._settle()
 
+    def set_system_idle(self, seconds: float | None) -> None:
+        """How long the computer has gone without input (None: can't tell, change nothing)."""
+        if seconds is None:
+            return
+        self._computer_idle = seconds >= SYSTEM_IDLE_SECONDS
+        if self._computer_idle and self.state in (State.IDLE, State.WALK):
+            self._fall_asleep(nap=0.0)
+        elif not self._computer_idle and self.state is State.SLEEPING and self._nap_left <= 0:
+            self._wake()
+
     def claude_thinking(self) -> None:
+        self._alone = 0.0
         self.thinking = True
         self._think_left = THINK_TIMEOUT
         self._exclaim_left = 0.0
@@ -154,6 +180,7 @@ class Brain:
             self._settle()
 
     def claude_done(self) -> None:
+        self._alone = 0.0
         self.thinking = False
         self._exclaim_left = EXCLAIM_SECONDS
         if self.state is State.DRAGGED:
@@ -176,6 +203,7 @@ class Brain:
         self._clamp_into_bounds()
 
     def press(self, px: float, py: float) -> None:
+        self._alone = 0.0
         self._press = (px, py, px - self.x, py - self.y)
 
     def motion(self, px: float, py: float) -> None:
@@ -216,6 +244,7 @@ class Brain:
     def tick(self, dt: float) -> None:
         dt = min(max(dt, 0.0), MAX_DT)
         self._clock += dt
+        self._alone += dt
         self._dizzy_left = max(0.0, self._dizzy_left - dt)
         self._love_left = max(0.0, self._love_left - dt)
         self._confused_left = max(0.0, self._confused_left - dt)
@@ -236,6 +265,8 @@ class Brain:
             self._walk(dt)
         elif self.state is State.THINKING:
             self._go_to_thinking_spot(dt)
+        elif self.state is State.SLEEPING:
+            self._sleep(dt)
 
     def _fall(self, dt: float) -> None:
         self.vy += GRAVITY * dt
@@ -271,6 +302,9 @@ class Brain:
                 self._confused_left = CONFUSED_SECONDS
         self._timer -= dt
         if self._timer <= 0:
+            if self._alone >= LONELY_SECONDS and self.rng.random() < NAP_CHANCE:
+                self._fall_asleep(nap=self.rng.uniform(*NAP_SECONDS))
+                return
             self.state = State.IDLE
             self._timer = self.rng.uniform(*IDLE_SECONDS)
 
@@ -282,6 +316,13 @@ class Brain:
             return
         self.facing = 1 if dx > 0 else -1
         self.x += self.facing * step
+
+    def _sleep(self, dt: float) -> None:
+        if self._nap_left <= 0:
+            return  # sleeping until the computer is used again
+        self._nap_left -= dt
+        if self._nap_left <= 0 and not self._computer_idle:
+            self._wake()
 
     def _fidget(self, dt: float) -> None:
         self.x += self.facing * FIDGET_SPEED * dt
@@ -303,6 +344,17 @@ class Brain:
         else:
             self.state = State.IDLE
             self._timer = self.rng.uniform(*IDLE_SECONDS)
+
+    def _fall_asleep(self, nap: float) -> None:
+        """Lie still with the Zzz; nap > 0 wakes it after that many seconds, 0 waits for the user."""
+        self.state = State.SLEEPING
+        self._nap_left = nap
+        self._confused_left = 0.0
+
+    def _wake(self) -> None:
+        self._alone = 0.0
+        self._nap_left = 0.0
+        self._settle()
 
     def _clamp(self, x: float, y: float) -> tuple[float, float]:
         b = self.bounds

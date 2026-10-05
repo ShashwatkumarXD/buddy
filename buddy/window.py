@@ -20,14 +20,17 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from buddy import config as config_mod
 from buddy import ipc, sprites
+from buddy.idle import IdleClock
 from buddy.brain import Bounds, Brain, Bubble
 from buddy.config import Config
 from buddy.matrix import PANEL_H, PANEL_W, MatrixRain
 from buddy.monitor import StressMonitor
 from buddy.safety import keep_alive
-from buddy.timing import bubble_durations, frame_at, spin_durations
+from buddy.timing import bubble_durations, drift_durations, frame_at, spin_durations
 
 FPS = 30
+BUBBLE_TIMING = {Bubble.DIZZY: spin_durations, Bubble.SLEEP: drift_durations}  # the rest hold, then flip
+BUBBLE_NUDGE = {Bubble.SLEEP: 0.25}  # shift right by this share of the sprite's width (the Zs drift off to the side)
 MARGIN = 4
 WINDOW_FLAGS = (
     Qt.WindowType.FramelessWindowHint
@@ -125,6 +128,11 @@ class Sprite:
             self.index = 0
             self._elapsed = 0.0
 
+    def rest(self) -> None:
+        """Hold the first frame (asleep: no stepping in place)."""
+        self.index = 0
+        self._elapsed = 0.0
+
     def advance(self, dt_ms: float) -> None:
         durations = self.anims[self.current][2]
         self._elapsed += dt_ms
@@ -208,7 +216,7 @@ class DecorWindow(_Overlay):
 
 
 class Buddy:
-    """The running buddy: brain, monitor, sprite, the two windows and the IPC listener."""
+    """The running buddy: brain, monitors, sprite, the two windows and the IPC listener."""
 
     def __init__(self, app: QApplication, cfg: Config, cached: sprites.CachedSprite):
         self.app = app
@@ -217,6 +225,7 @@ class Buddy:
         self.bubbles = _load_bubbles(bubble_scale(cfg.scale))
         self.matrix = MatrixRain(PANEL_W, PANEL_H)
         self.monitor = StressMonitor(cfg.stress)
+        self.idle = IdleClock()
         self.brain = Brain(self._bounds(), self.sprite.width, self.sprite.height, cfg.walk_speed)
         self.decor = DecorWindow(self)
         self.pet = PetWindow(self)
@@ -283,7 +292,10 @@ class Buddy:
         self._bubble_ms = self._bubble_ms + dt * 1000 if bubble is self._bubble_shown else 0.0
         self._bubble_shown = bubble
         self.sprite.play("walk" if self.brain.moving else "idle")
-        self.sprite.advance(min(dt, 0.1) * 1000)
+        if self.brain.asleep:
+            self.sprite.rest()
+        else:
+            self.sprite.advance(min(dt, 0.1) * 1000)
         if self.brain.stressed:
             self.matrix.tick(dt)
         self._place()
@@ -294,6 +306,7 @@ class Buddy:
     @keep_alive
     def on_monitor(self) -> bool:
         self.brain.set_stressed(self.monitor.tick())
+        self.brain.set_system_idle(self.idle.seconds())
         return True
 
     @keep_alive
@@ -314,10 +327,11 @@ class Buddy:
         bubble = b.bubble
         if bubble is not None:
             frames = self.bubbles[bubble]
-            timing = spin_durations if bubble is Bubble.DIZZY else bubble_durations
+            timing = BUBBLE_TIMING.get(bubble, bubble_durations)
             pb = frames[frame_at(self._bubble_ms, timing(len(frames)))]
             bw, bh = logical_size(pb)
-            bx = self.sprite_off_x + (self.sprite.width - bw) // 2
+            bx = self.sprite_off_x + (self.sprite.width - bw) // 2 + int(self.sprite.width * BUBBLE_NUDGE.get(bubble, 0))
+            bx = min(bx, self.decor_w - bw)
             by = self.sprite_off_y - bh - MARGIN
             painter.drawPixmap(bx, by, pb)
         if b.stressed:

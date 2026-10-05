@@ -6,7 +6,7 @@ BUBBLES = Path(__file__).resolve().parent.parent / "buddy" / "assets" / "bubbles
 
 
 def test_each_bubble_is_native_pixel_art():
-    for name in ("love", "angry", "confused", "exclaim", "thinking", "dizzy"):
+    for name in ("love", "angry", "confused", "exclaim", "thinking", "dizzy", "sleep"):
         im = Image.open(BUBBLES / f"{name}.png")
         assert im.mode == "RGBA"
         assert im.width == 40 and im.height <= 40  # one pixel per art pixel; the window enlarges them
@@ -27,3 +27,10 @@ def test_dizzy_stars_have_circling_frames_matching_their_size():
     frames = [rest] + [Image.open(BUBBLES / f"dizzy_{i}.png") for i in range(1, 8)]
     assert all(frame.size == rest.size for frame in frames)
     assert len({frame.tobytes() for frame in frames}) == len(frames)  # every frame moves the stars
+
+
+def test_sleep_zzz_have_drifting_frames_matching_their_size():
+    rest = Image.open(BUBBLES / "sleep.png")
+    frames = [rest] + [Image.open(BUBBLES / f"sleep_{i}.png") for i in range(1, 6)]
+    assert all(frame.size == rest.size for frame in frames)
+    assert len({frame.tobytes() for frame in frames}) == len(frames)  # every frame moves the Zs

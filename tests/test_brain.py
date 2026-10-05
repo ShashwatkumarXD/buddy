@@ -7,9 +7,12 @@ from buddy.brain import (
     IDLE_SECONDS,
     LOVE_SECONDS,
     DIZZY_SECONDS,
+    LONELY_SECONDS,
+    NAP_SECONDS,
     SHAKE_SWINGS,
     SHAKE_TRAVEL,
     SHAKE_WINDOW,
+    SYSTEM_IDLE_SECONDS,
     Bounds,
     Brain,
     Bubble,
@@ -377,3 +380,153 @@ def test_dizziness_fades_if_held_still_after_shaking():
     run(b, 0.2)
     assert b.y == b.ground_y
     assert b.bubble is Bubble.CONFUSED
+
+
+# --- sleeping ---------------------------------------------------------------
+
+
+def napping():
+    """Left alone long enough and the nap roll succeeds (rand 0.0): asleep at the next stop."""
+    b = make(rand=0.0)
+    run(b, LONELY_SECONDS + 10)
+    assert b.state is State.SLEEPING
+    return b
+
+
+def test_naps_when_left_alone_long_enough():
+    b = napping()
+    assert b.asleep
+    assert b.bubble is Bubble.SLEEP
+    assert not b.moving
+    x = b.x
+    run(b, 5.0)
+    assert b.x == x and b.y == b.ground_y  # lies still
+
+
+def test_no_nap_before_being_left_alone_long_enough():
+    b = make(rand=0.0)
+    for _ in range(round((LONELY_SECONDS - 1) * 30)):
+        b.tick(1 / 30)
+        assert b.state is not State.SLEEPING
+
+
+def test_no_nap_when_the_roll_fails():
+    b = make(rand=0.99)
+    for _ in range(round(LONELY_SECONDS * 2 * 30)):
+        b.tick(1 / 30)
+        assert b.state is not State.SLEEPING
+
+
+def test_attention_restarts_the_lonely_clock():
+    b = make(rand=0.0)
+    run(b, LONELY_SECONDS - 5)
+    b.claude_thinking()
+    b.claude_done()
+    for _ in range(round((LONELY_SECONDS - 10) * 30)):
+        b.tick(1 / 30)
+        assert b.state is not State.SLEEPING
+
+
+def test_wakes_up_after_the_nap_and_does_not_nap_again_right_away():
+    b = napping()
+    run(b, NAP_SECONDS[0] + 0.1)
+    assert b.state is not State.SLEEPING
+    assert b.bubble is not Bubble.SLEEP
+    for _ in range(round((LONELY_SECONDS - 10) * 30)):
+        b.tick(1 / 30)
+        assert b.state is not State.SLEEPING
+
+
+def test_click_wakes_it_with_love():
+    b = napping()
+    b.press(b.x + 1, b.y + 1)
+    b.release(b.x + 1, b.y + 1)
+    assert not b.asleep
+    assert b.bubble is Bubble.LOVE
+
+
+def test_drag_wakes_it():
+    b = napping()
+    b.press(b.x, b.y)
+    b.motion(b.x + 100, b.y - 100)
+    assert b.state is State.DRAGGED
+    assert b.bubble is None
+
+
+def test_claude_thinking_wakes_it():
+    b = napping()
+    b.claude_thinking()
+    assert b.state is State.THINKING
+    assert b.bubble is Bubble.THINKING
+
+
+def test_stress_wakes_it():
+    b = napping()
+    b.set_stressed(True)
+    assert b.state is State.STRESSED
+    assert b.bubble is Bubble.ANGRY
+
+
+def test_sleeps_while_the_computer_is_idle_and_wakes_when_you_are_back():
+    b = make()
+    b.set_system_idle(SYSTEM_IDLE_SECONDS - 1)
+    assert not b.asleep
+    b.set_system_idle(SYSTEM_IDLE_SECONDS)
+    assert b.asleep
+    assert b.bubble is Bubble.SLEEP
+    run(b, NAP_SECONDS[1] + 5)
+    assert b.asleep  # no nap timer: sleeps as long as you are away
+    b.set_system_idle(0.5)
+    assert not b.asleep
+    assert b.state is State.IDLE
+
+
+def test_computer_idle_also_puts_a_walking_buddy_to_sleep():
+    b = walking()
+    b.set_system_idle(SYSTEM_IDLE_SECONDS + 1)
+    assert b.asleep
+
+
+def test_unknown_idle_time_changes_nothing():
+    b = make()
+    b.set_system_idle(SYSTEM_IDLE_SECONDS)
+    b.set_system_idle(None)
+    assert b.asleep
+    b2 = make()
+    b2.set_system_idle(None)
+    assert not b2.asleep
+
+
+def test_computer_idle_does_not_interrupt_thinking_or_stress():
+    b = make()
+    b.claude_thinking()
+    b.set_system_idle(SYSTEM_IDLE_SECONDS + 1)
+    assert b.state is State.THINKING
+    s = make()
+    s.set_stressed(True)
+    s.set_system_idle(SYSTEM_IDLE_SECONDS + 1)
+    assert s.state is State.STRESSED
+
+
+def test_falls_asleep_once_claude_is_done_if_you_are_still_away():
+    b = make()
+    b.claude_thinking()
+    b.claude_done()
+    run(b, 3.0)  # celebratory hops, then back on the ground
+    b.set_system_idle(SYSTEM_IDLE_SECONDS + 1)
+    assert b.asleep
+
+
+def test_nap_turns_into_a_long_sleep_when_the_computer_goes_idle():
+    b = napping()
+    b.set_system_idle(SYSTEM_IDLE_SECONDS + 1)
+    run(b, NAP_SECONDS[1] + 5)
+    assert b.asleep
+    b.set_system_idle(0.0)
+    assert not b.asleep
+
+
+def test_short_break_from_the_computer_does_not_cut_a_nap_short():
+    b = napping()
+    b.set_system_idle(0.0)  # you are at the computer: the nap goes on
+    assert b.asleep

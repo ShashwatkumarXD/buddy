@@ -18,6 +18,9 @@ while Claude Code, Gemini CLI or Codex is working.
   looks around, a bit confused ❓.
 - **Gets dizzy.** Shake it back and forth while you hold it and little stars ⭐ start circling
   its head, and keep circling for a little while after it lands.
+- **Takes naps.** Leave it alone for a few minutes and now and then it dozes off where it stands,
+  with little 💤 drifting up. Step away from your computer for 5 minutes and it sleeps until you're
+  back. Clicking or picking it up wakes it.
 - **Feels your laptop's stress.** If CPU or RAM stays high long enough to make your laptop lag,
   it gets angry 💢 and shows a little Matrix-style CPU/RAM readout. When things calm down, the
   readout disappears.

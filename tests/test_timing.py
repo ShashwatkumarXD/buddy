@@ -1,6 +1,6 @@
 import pytest
 
-from buddy.timing import SPIN_STEP_MS, bubble_durations, frame_at, spin_durations
+from buddy.timing import DRIFT_STEP_MS, SPIN_STEP_MS, bubble_durations, drift_durations, frame_at, spin_durations
 
 
 def test_single_frame_bubble_never_changes():
@@ -23,3 +23,8 @@ def test_spinning_bubble_never_rests_on_a_frame():
 def test_frame_at_rejects_empty_durations():
     with pytest.raises(ValueError):
         frame_at(0, [])
+
+
+def test_drifting_bubble_moves_slowly_and_steadily():
+    assert drift_durations(6) == [DRIFT_STEP_MS] * 6
+    assert DRIFT_STEP_MS > SPIN_STEP_MS

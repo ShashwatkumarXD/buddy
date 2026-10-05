@@ -92,6 +92,28 @@ def test_stressed_decor_draws_the_panel(buddy):
     assert greenish > 20
 
 
+def test_idle_computer_puts_it_to_sleep_with_still_sprite_and_zzz(buddy):
+    from buddy.brain import SYSTEM_IDLE_SECONDS, Bubble
+    from buddy.idle import IdleClock
+
+    buddy.idle = IdleClock([lambda: SYSTEM_IDLE_SECONDS + 1])
+    buddy.on_monitor()
+    assert buddy.brain.bubble is Bubble.SLEEP
+    pump(buddy, 0.4)  # longer than a 100 ms sprite frame
+    assert buddy.sprite.index == 0
+    image = buddy.decor.grab().toImage()
+    sleepy_blue = sum(
+        1
+        for y in range(image.height())
+        for x in range(image.width())
+        if (c := image.pixelColor(x, y)).alpha() > 0 and c.blue() > 230 and c.red() < c.blue() - 30
+    )
+    assert sleepy_blue > 10
+    buddy.idle = IdleClock([lambda: 0.0])
+    buddy.on_monitor()
+    assert not buddy.brain.asleep
+
+
 def test_shutdown_removes_the_contact_file(qapp, runtime, cached):
     from buddy import window
 
