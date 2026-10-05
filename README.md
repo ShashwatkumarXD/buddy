@@ -35,29 +35,27 @@ while Claude Code, Gemini CLI or Codex is working.
 - **Windows 10/11, macOS, or Linux.** It's built and tested on Ubuntu 26.04 (GNOME, Wayland).
   Windows and macOS are covered by automated tests on every change, and confirmation on real
   screens is welcome.
-- **Python 3.11 or newer.** Get it from [python.org](https://www.python.org/downloads/) if you don't
-  have it. On Windows, tick *"Add python.exe to PATH"* in the installer.
-- **Git**, to download Buddy. Alternatively, use *Code → Download ZIP* on GitHub.
-- **An internet connection** the first time: the installer downloads Qt (about 80 MB) and your
-  Pokémon's sprite. After that it works offline.
+- **An internet connection** the first time: the installer downloads Buddy, its own private copy
+  of Python and Qt (about 120 MB), and your Pokémon's sprite. After that it works offline.
+
+You don't need Python or Git: the installer uses [uv](https://docs.astral.sh/uv/) to fetch a
+private Python just for Buddy, and leaves any Python you already have alone. No admin rights needed.
 
 ## Install
-
-**macOS or Linux:** open a terminal and run
-
-```bash
-git clone https://github.com/ShashwatkumarXD/buddy.git
-cd buddy
-./install.sh
-```
 
 **Windows:** open PowerShell and run
 
 ```powershell
-git clone https://github.com/ShashwatkumarXD/buddy.git
-cd buddy
-powershell -ExecutionPolicy Bypass -File install.ps1
+irm https://raw.githubusercontent.com/ShashwatkumarXD/buddy/main/install.ps1 | iex
 ```
+
+**macOS or Linux:** open a terminal and run
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ShashwatkumarXD/buddy/main/install.sh | bash
+```
+
+Run the same line again any time to update Buddy. Your settings and Pokémon are kept.
 
 > **Linux only:** Qt needs a few system libraries. The installer checks for them and offers to
 > install them with `sudo apt`. On Ubuntu the line is
@@ -71,11 +69,12 @@ The installer will:
 4. offer to connect it to Claude Code, Gemini CLI or Codex if you have them installed
 5. start your Buddy right away
 
-You can also name your Pokémon straight away: `./install.sh charmander`
-(on Windows, `install.ps1 charmander`).
+You can also name your Pokémon straight away: add `-s charmander` after `bash`, or on Windows run
+`$env:BUDDY_POKEMON = "charmander"` first.
 
-> **Tip:** if your terminal says `buddy: command not found` afterwards, open a new terminal.
-> On macOS or Linux, if it still happens, add `~/.local/bin` to your `PATH`.
+> **Tip:** on Windows the `buddy` command works straight away in the window you installed from.
+> In terminals that were already open, or if macOS/Linux says `buddy: command not found`, open a
+> new terminal. On macOS or Linux, if it still happens, add `~/.local/bin` to your `PATH`.
 
 ## Everyday use
 
@@ -150,6 +149,7 @@ for i in $(seq $(nproc)); do timeout 25 sh -c 'while :; do :; done' & done
 | Problem | Fix |
 |---|---|
 | Buddy doesn't appear | Run `buddy run --foreground` in a terminal and read the message it prints. |
+| `buddy` is not recognized (Windows) | Open a new PowerShell window, or run `$env:Path += ";$env:LOCALAPPDATA\buddy\bin"` |
 | "Qt needs some system libraries" (Linux) | Run the `sudo apt install …` line it prints. |
 | "could not connect to display" (Linux) | `sudo apt install xwayland` |
 | "No sprites cached for …" | `buddy choose <name>` (needs internet once) |
@@ -159,7 +159,7 @@ for i in $(seq $(nproc)); do timeout 25 sh -c 'while :; do :; done' & done
 | Not there after logging in (Linux) | Check `journalctl --user -b \| grep -i buddy` |
 | Windows: only on one desktop | Buddy stays on the virtual desktop where it started. Windows doesn't let apps pin themselves to every desktop. |
 
-Logs from the installer's launch are in `~/.cache/buddy/buddy.log` (Linux) or `~/Library/Caches/buddy/buddy.log` (macOS).
+Logs are in `~/.cache/buddy/buddy.log` (Linux), `~/Library/Caches/buddy/buddy.log` (macOS) or `%LOCALAPPDATA%\buddy\Cache\buddy.log` (Windows).
 
 ## Uninstall
 
@@ -169,15 +169,19 @@ buddy stop
 buddy autostart off
 ```
 
-Then delete Buddy's files and the `buddy` folder you cloned:
+Then delete Buddy's files (this includes its private Python):
 
 | System | Files to delete |
 |---|---|
-| Linux | `~/.local/bin/buddy`, `~/.config/buddy`, `~/.cache/buddy` |
+| Linux | `~/.local/bin/buddy`, `~/.local/share/buddy`, `~/.config/buddy`, `~/.cache/buddy` |
 | macOS | `~/.local/bin/buddy`, `~/Library/Application Support/buddy`, `~/Library/Caches/buddy` |
 | Windows | `%APPDATA%\buddy`, `%LOCALAPPDATA%\buddy` (and remove `%LOCALAPPDATA%\buddy\bin` from your user PATH) |
 
 ## For developers
+
+Clone the repo and run `./install.sh` (Windows: `powershell -ExecutionPolicy Bypass -File install.ps1`).
+From a clone, the installer makes an editable install with the test tools in `.venv`.
+`BUDDY_REF=<branch>` makes the one-line installer fetch a branch instead of `main`.
 
 ```bash
 .venv/bin/pytest -q                            # run the tests

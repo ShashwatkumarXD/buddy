@@ -8,11 +8,14 @@ the laptop lag, it gets stressed and shows a Matrix-style CPU/RAM readout.
 
 INSTALL (once)
 --------------
-  macOS / Linux:  ./install.sh              (or ./install.sh eevee)
-  Windows:        powershell -ExecutionPolicy Bypass -File install.ps1
+  Windows (PowerShell):
+    irm https://raw.githubusercontent.com/ShashwatkumarXD/buddy/main/install.ps1 | iex
+  macOS / Linux:
+    curl -fsSL https://raw.githubusercontent.com/ShashwatkumarXD/buddy/main/install.sh | bash
 
-The installer sets up Qt and the `buddy` command, turns on start-at-login, offers
-to connect your AI agents, and starts your buddy. Running it again is safe.
+No Python or Git needed: it fetches a private Python (via uv) and Qt, sets up the
+`buddy` command, turns on start-at-login, offers to connect your AI agents, and
+starts your buddy. Run it again any time to update; settings are kept.
 On Linux it also offers to install the few system libraries Qt needs.
 
 
@@ -92,7 +95,9 @@ FILES
   Settings      Linux ~/.config/buddy · macOS ~/Library/Application Support/buddy
                 Windows %APPDATA%\buddy
   Sprites/logs  Linux ~/.cache/buddy · macOS ~/Library/Caches/buddy
-                Windows %LOCALAPPDATA%\buddy  (safe to delete)
+                Windows %LOCALAPPDATA%\buddy\Cache  (safe to delete)
+  Program       Linux ~/.local/share/buddy · macOS ~/Library/Application Support/buddy
+                Windows %LOCALAPPDATA%\buddy  (buddy, its Python and uv)
   Login start   Linux ~/.config/autostart/buddy.desktop
                 macOS ~/Library/LaunchAgents/com.buddy.pet.plist
                 Windows registry: HKCU\…\CurrentVersion\Run → Buddy
@@ -115,9 +120,8 @@ UNINSTALL
   buddy agents off
   buddy stop
   buddy autostart off
-  Then delete the settings and sprites folders listed under FILES, the `buddy`
-  command (~/.local/bin/buddy, or %LOCALAPPDATA%\buddy\bin on Windows), and the
-  project folder.
+  Then delete the folders listed under FILES and the `buddy` command
+  (~/.local/bin/buddy, or %LOCALAPPDATA%\buddy\bin on Windows).
 
 
 CREDITS
