@@ -50,6 +50,10 @@ PLAYING WITH IT
                           looking confused ❓
   Shake it while holding  ⭐ it gets dizzy: stars circle its head, even after it lands
   Walking into an edge    turns around (sometimes confused ❓)
+  Left alone a while      💤 now and then it naps for a bit (no clicks or agent
+                          activity for 3 minutes)
+  Away from the computer  💤 after 5 minutes without mouse or keyboard it sleeps
+                          until you're back. Clicking or dragging always wakes it.
   Laptop under load       💢 it stops and fidgets, and a green Matrix panel shows
                           CPU % and RAM %. Hidden again once things calm down.
   Clicks next to it go through to the window underneath.

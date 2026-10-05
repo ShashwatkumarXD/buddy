@@ -3,6 +3,7 @@
 BUBBLE_HOLD_MS = 700  # first frame: the bubble at rest
 BUBBLE_STEP_MS = 110  # each following frame (e.g. a turning page)
 SPIN_STEP_MS = 90  # every frame of a bubble that never rests (the circling dizzy stars)
+DRIFT_STEP_MS = 260  # the sleepy Zs float up slowly
 
 
 def bubble_durations(frame_count: int) -> list[int]:
@@ -13,6 +14,10 @@ def bubble_durations(frame_count: int) -> list[int]:
 
 def spin_durations(frame_count: int) -> list[int]:
     return [SPIN_STEP_MS] * max(1, frame_count)
+
+
+def drift_durations(frame_count: int) -> list[int]:
+    return [DRIFT_STEP_MS] * max(1, frame_count)
 
 
 def frame_at(elapsed_ms: float, durations: list[int]) -> int:
