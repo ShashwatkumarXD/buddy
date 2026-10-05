@@ -48,6 +48,7 @@ PLAYING WITH IT
   Click it                ❤️  it feels loved and does a little hop
   Click, hold and drag    carry it anywhere; let go and it falls back down,
                           looking confused ❓
+  Shake it while holding  ⭐ it gets dizzy: stars circle its head, even after it lands
   Walking into an edge    turns around (sometimes confused ❓)
   Laptop under load       💢 it stops and fidgets, and a green Matrix panel shows
                           CPU % and RAM %. Hidden again once things calm down.
