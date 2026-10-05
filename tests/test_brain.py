@@ -6,6 +6,10 @@ from buddy.brain import (
     FIDGET_RANGE,
     IDLE_SECONDS,
     LOVE_SECONDS,
+    SCRIBBLE_SECONDS,
+    SHAKE_SWINGS,
+    SHAKE_TRAVEL,
+    SHAKE_WINDOW,
     Bounds,
     Brain,
     Bubble,
@@ -308,3 +312,68 @@ def test_moving_follows_state():
     assert not b.moving  # idle
     b = walking()
     assert b.moving
+
+
+def shake(brain, swings, swing=SHAKE_TRAVEL + 15, seconds_per_swing=0.1, vertical=False):
+    """Grab the pet in the air and swing the pointer back and forth `swings` times."""
+    px, py = brain.x + 10, brain.y + 10
+    brain.press(px, py)
+    for i in range(swings + 1):  # the first move only starts the drag; each one after is a turn-back
+        offset = swing if i % 2 == 0 else 0.0
+        brain.motion(px, py + offset) if vertical else brain.motion(px + offset, py)
+        run(brain, seconds_per_swing)
+    return px, py
+
+
+def test_shaking_while_held_makes_it_dizzy_with_scribble():
+    b = make()
+    shake(b, SHAKE_SWINGS)
+    assert b.state is State.DRAGGED
+    assert b.bubble is Bubble.SCRIBBLE  # shown while still being held
+
+
+def test_shaking_up_and_down_counts_too():
+    b = make()
+    shake(b, SHAKE_SWINGS, vertical=True)
+    assert b.bubble is Bubble.SCRIBBLE
+
+
+def test_a_few_swings_are_just_a_drag():
+    b = make()
+    shake(b, SHAKE_SWINGS - 1)
+    assert b.bubble is None
+
+
+def test_tiny_wiggles_are_not_a_shake():
+    b = make()
+    shake(b, SHAKE_SWINGS * 3, swing=SHAKE_TRAVEL - 1)
+    assert b.bubble is None
+
+
+def test_slow_swings_are_not_a_shake():
+    b = make()
+    shake(b, SHAKE_SWINGS * 2, seconds_per_swing=SHAKE_WINDOW / (SHAKE_SWINGS - 1) + 0.05)
+    assert b.bubble is None
+
+
+def test_dizzy_after_landing_instead_of_confused():
+    b = make()
+    px, py = shake(b, SHAKE_SWINGS)
+    b.release(px, py)
+    run(b, 2.0)
+    assert b.y == b.ground_y
+    assert b.state is State.IDLE
+    assert b.bubble is Bubble.SCRIBBLE
+    run(b, SCRIBBLE_SECONDS)
+    assert b.bubble is None  # not confused afterwards either
+
+
+def test_scribble_fades_if_held_still_after_shaking():
+    b = make()
+    px, py = shake(b, SHAKE_SWINGS)
+    run(b, SCRIBBLE_SECONDS + 0.1)
+    assert b.bubble is None
+    b.release(px, py)
+    run(b, 0.2)
+    assert b.y == b.ground_y
+    assert b.bubble is Bubble.CONFUSED

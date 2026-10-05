@@ -19,6 +19,28 @@ class Bubble(Enum):
     ANGRY = "angry"
     EXCLAIM = "exclaim"
     THINKING = "thinking"
+    SCRIBBLE = "scribble"
+
+
+class _ShakeMeter:
+    """Counts recent turn-backs of the pointer along one axis (a swing must cover SHAKE_TRAVEL)."""
+
+    def __init__(self, start: float):
+        self.extreme = start
+        self.direction = 0
+        self.turns = []
+
+    def move(self, pos: float, now: float) -> int:
+        delta = pos - self.extreme
+        if delta * self.direction > 0:
+            self.extreme = pos
+        elif abs(delta) >= SHAKE_TRAVEL:
+            if self.direction:
+                self.turns.append(now)
+            self.direction = 1 if delta > 0 else -1
+            self.extreme = pos
+        self.turns = [t for t in self.turns if now - t <= SHAKE_WINDOW]
+        return len(self.turns)
 
 
 @dataclass(frozen=True)
@@ -45,6 +67,10 @@ THINK_SPOT_FROM_RIGHT = 0.15
 THINK_TIMEOUT = 600.0
 EXCLAIM_SECONDS = 2.5
 HOPS_WHEN_DONE = 3
+SHAKE_TRAVEL = 25.0  # pixels the pointer must swing one way before turning back counts
+SHAKE_SWINGS = 4  # turn-backs within SHAKE_WINDOW that make it dizzy
+SHAKE_WINDOW = 1.2
+SCRIBBLE_SECONDS = 2.5
 _GROUND_STATES = (State.IDLE, State.WALK, State.STRESSED, State.THINKING)
 
 
@@ -71,6 +97,9 @@ class Brain:
         self._think_left = 0.0
         self._exclaim_left = 0.0
         self._hops_left = 0
+        self._clock = 0.0
+        self._shake = None
+        self._scribble_left = 0.0
 
     @property
     def ground_y(self) -> float:
@@ -91,6 +120,8 @@ class Brain:
 
     @property
     def bubble(self) -> Bubble | None:
+        if self._scribble_left > 0:
+            return Bubble.SCRIBBLE
         if self.state is State.DRAGGED:
             return None
         if self._love_left > 0:
@@ -159,12 +190,16 @@ class Brain:
             self._hops_left = 0
             self._love_left = 0.0
             self._confused_left = 0.0
+            self._shake = (_ShakeMeter(start_x), _ShakeMeter(start_y))
+        if max(meter.move(pos, self._clock) for meter, pos in zip(self._shake, (px, py))) >= SHAKE_SWINGS:
+            self._scribble_left = SCRIBBLE_SECONDS
         self.x, self.y = self._clamp(px - grab_x, py - grab_y)
 
     def release(self, px: float, py: float) -> None:
         if self._press is None:
             return
         self._press = None
+        self._shake = None
         if self.state is State.DRAGGED:
             self.state = State.FALLING
             self.vy = 0.0
@@ -180,6 +215,8 @@ class Brain:
 
     def tick(self, dt: float) -> None:
         dt = min(max(dt, 0.0), MAX_DT)
+        self._clock += dt
+        self._scribble_left = max(0.0, self._scribble_left - dt)
         self._love_left = max(0.0, self._love_left - dt)
         self._confused_left = max(0.0, self._confused_left - dt)
         self._exclaim_left = max(0.0, self._exclaim_left - dt)
@@ -211,7 +248,10 @@ class Brain:
                 self.vy = -HOP_SPEED
                 return
             if self._confused_on_land:
-                self._confused_left = CONFUSED_SECONDS
+                if self._scribble_left > 0:  # it was shaken: stays dizzy for a while after landing
+                    self._scribble_left = SCRIBBLE_SECONDS
+                else:
+                    self._confused_left = CONFUSED_SECONDS
             self._settle()
 
     def _idle(self, dt: float) -> None:

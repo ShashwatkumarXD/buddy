@@ -1,6 +1,6 @@
 import pytest
 
-from buddy.timing import bubble_durations, frame_at
+from buddy.timing import SPIN_STEP_MS, bubble_durations, frame_at, spin_durations
 
 
 def test_single_frame_bubble_never_changes():
@@ -13,6 +13,11 @@ def test_animated_bubble_holds_then_flips():
     durations = bubble_durations(4)
     assert durations == [700, 110, 110, 110]
     assert [frame_at(ms, durations) for ms in (0, 699, 700, 809, 810, 920, 1029, 1030)] == [0, 0, 1, 1, 2, 3, 3, 0]
+
+
+def test_spinning_bubble_never_rests_on_a_frame():
+    assert spin_durations(6) == [SPIN_STEP_MS] * 6
+    assert spin_durations(1) == [SPIN_STEP_MS]
 
 
 def test_frame_at_rejects_empty_durations():

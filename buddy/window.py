@@ -25,7 +25,7 @@ from buddy.config import Config
 from buddy.matrix import PANEL_H, PANEL_W, MatrixRain
 from buddy.monitor import StressMonitor
 from buddy.safety import keep_alive
-from buddy.timing import bubble_durations, frame_at
+from buddy.timing import bubble_durations, frame_at, spin_durations
 
 FPS = 30
 MARGIN = 4
@@ -314,7 +314,8 @@ class Buddy:
         bubble = b.bubble
         if bubble is not None:
             frames = self.bubbles[bubble]
-            pb = frames[frame_at(self._bubble_ms, bubble_durations(len(frames)))]
+            timing = spin_durations if bubble is Bubble.SCRIBBLE else bubble_durations
+            pb = frames[frame_at(self._bubble_ms, timing(len(frames)))]
             bw, bh = logical_size(pb)
             bx = self.sprite_off_x + (self.sprite.width - bw) // 2
             by = self.sprite_off_y - bh - MARGIN

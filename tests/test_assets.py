@@ -6,7 +6,7 @@ BUBBLES = Path(__file__).resolve().parent.parent / "buddy" / "assets" / "bubbles
 
 
 def test_each_bubble_is_native_pixel_art():
-    for name in ("love", "angry", "confused", "exclaim", "thinking"):
+    for name in ("love", "angry", "confused", "exclaim", "thinking", "scribble"):
         im = Image.open(BUBBLES / f"{name}.png")
         assert im.mode == "RGBA"
         assert im.width == 40 and im.height <= 40  # one pixel per art pixel; the window enlarges them
@@ -20,3 +20,10 @@ def test_thinking_bubble_has_page_flip_frames_matching_its_size():
         frame = Image.open(BUBBLES / f"thinking_{i}.png")
         assert frame.size == rest.size
         assert frame.tobytes() != rest.tobytes()  # each frame actually shows the turning page
+
+
+def test_scribble_bubble_has_spinning_tangle_frames_matching_its_size():
+    rest = Image.open(BUBBLES / "scribble.png")
+    frames = [rest] + [Image.open(BUBBLES / f"scribble_{i}.png") for i in range(1, 6)]
+    assert all(frame.size == rest.size for frame in frames)
+    assert len({frame.tobytes() for frame in frames}) == len(frames)  # every frame moves the tangle

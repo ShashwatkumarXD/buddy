@@ -16,6 +16,8 @@ while Claude Code, Gemini CLI or Codex is working.
 - **Loves attention.** Click it and it hops with a ❤️.
 - **Can be picked up.** Click, hold and drag it anywhere. When you let go it falls back down and
   looks around, a bit confused ❓.
+- **Gets dizzy.** Shake it back and forth while you hold it and its head fills with a spinning
+  scribble 😵‍💫 that lasts a little while after it lands.
 - **Feels your laptop's stress.** If CPU or RAM stays high long enough to make your laptop lag,
   it gets angry 💢 and shows a little Matrix-style CPU/RAM readout. When things calm down, the
   readout disappears.
