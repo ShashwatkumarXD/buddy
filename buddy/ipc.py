@@ -1,8 +1,8 @@
 """Talk to the running buddy over 127.0.0.1 — works the same on Linux, macOS and Windows.
 
 The running buddy writes `<runtime dir>/buddy.port` (private to the user) with its port and a random
-token. A command is one line, `"<token> <command>\\n"`; buddy replies `"ok\\n"`. Anything with the wrong
-token, or an unknown command, is dropped without a reply. Stdlib only, so `buddy event` stays fast.
+token. A command is one line, `"<token> <command>[ <argument>]\\n"`; buddy replies `"ok\\n"`. Anything with
+the wrong token, or an unknown command, is dropped without a reply. Stdlib only, so `buddy event` stays fast.
 """
 import json
 import os
@@ -16,6 +16,7 @@ from buddy import paths
 COMMANDS = ("ping", "thinking", "done", "reload", "quit")
 CLIENT_TIMEOUT = 0.5
 STALE_CLIENT_SECONDS = 2.0
+MAX_LINE = 4096  # room for a command and a file path
 
 
 def port_file() -> Path:
@@ -78,7 +79,7 @@ class Server:
             pass
 
     def poll(self) -> list[str]:
-        """Accept waiting clients and return the commands they sent (pings are answered, not returned)."""
+        """Accept waiting clients and return the commands they sent, with any argument (pings are answered, not returned)."""
         while True:
             try:
                 conn, _ = self._sock.accept()
@@ -92,7 +93,7 @@ class Server:
         for client in list(self._clients):
             conn, buffer, since = client
             try:
-                data = conn.recv(256)
+                data = conn.recv(MAX_LINE)
             except (BlockingIOError, InterruptedError):
                 if time.monotonic() - since > STALE_CLIENT_SECONDS:
                     self._drop(client)
@@ -102,21 +103,21 @@ class Server:
                 continue
             buffer += data
             client[1] = buffer
-            if b"\n" in buffer or not data or len(buffer) > 512:
+            if b"\n" in buffer or not data or len(buffer) > MAX_LINE:
                 command = self._parse(buffer.split(b"\n", 1)[0])
                 if command is not None:
                     try:
                         conn.sendall(b"ok\n")
                     except OSError:
                         pass
-                    if command != "ping":
+                    if command.split(" ", 1)[0] != "ping":
                         commands.append(command)
                 self._drop(client)
         return commands
 
     def _parse(self, line: bytes) -> str | None:
         token, _, command = line.decode("utf-8", errors="replace").strip().partition(" ")
-        if secrets.compare_digest(token.encode(), self.token.encode()) and command in COMMANDS:
+        if secrets.compare_digest(token.encode(), self.token.encode()) and command.split(" ", 1)[0] in COMMANDS:
             return command
         return None
 

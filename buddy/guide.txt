@@ -65,7 +65,8 @@ After `buddy agents on` (the installer offers this when it finds one):
   You send a prompt       it hurries to a spot near the right of the screen and
                           shows its thinking bubble (a book flipping its pages)
   The agent finishes      ❗ bubble and three hops on the spot, then back to wandering
-  You stop it early       it gives up thinking after 10 minutes, or at your next prompt
+  You stop it early       Claude Code: it puts the book away within a second
+                          others: at your next prompt, or after 10 minutes
 Restart open agent sessions after turning this on or off. Codex asks you to approve
 new hooks once: run /hooks inside Codex. With several agents busy, the latest event wins.
   Files: ~/.claude/settings.json, ~/.gemini/settings.json, ~/.codex/hooks.json

@@ -1,4 +1,5 @@
 """Off-screen smoke tests for the real Qt windows (run on Linux, macOS and Windows in CI)."""
+import json
 import sys
 import threading
 import time
@@ -67,6 +68,26 @@ def test_running_buddy_answers_and_reacts_to_agents(buddy):
     thread.join(1)
     assert result["ok"] is True
     assert buddy.brain.thinking is True
+
+
+def test_interrupting_the_agent_stops_the_thinking(buddy, tmp_path):
+    log = tmp_path / "session.jsonl"
+    log.write_text("")
+    result = {}
+    thread = threading.Thread(target=lambda: result.setdefault("ok", ipc.send(f"thinking {log}")))
+    thread.start()
+    end = time.monotonic() + 3
+    while thread.is_alive() and time.monotonic() < end:
+        buddy.on_ipc()
+        time.sleep(0.01)
+    thread.join(1)
+    assert buddy.brain.thinking is True
+    buddy.on_monitor()
+    assert buddy.brain.thinking is True
+    entry = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user]"}]}}
+    log.write_text(json.dumps(entry) + "\n")
+    buddy.on_monitor()
+    assert buddy.brain.thinking is False
 
 
 def test_click_shows_love(buddy):

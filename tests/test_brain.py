@@ -289,6 +289,24 @@ def test_thinking_times_out():
     assert b.bubble is None
 
 
+def test_stopped_puts_the_book_away_without_celebrating():
+    b = make()
+    b.claude_thinking()
+    run(b, 10.0)
+    b.claude_stopped()
+    assert b.thinking is False
+    assert b.state is not State.THINKING
+    assert b.bubble is None
+    assert b.y == b.ground_y and b.vy == 0  # no ❗ hops: the user cut it short
+
+
+def test_stopped_while_not_thinking_changes_nothing():
+    b = make()
+    b.claude_done()
+    b.claude_stopped()
+    assert b.bubble is Bubble.EXCLAIM
+
+
 def test_stress_while_thinking_keeps_thinking_with_thinking_bubble():
     b = make()
     b.claude_thinking()

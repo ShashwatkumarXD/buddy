@@ -193,6 +193,17 @@ class Brain:
             self.vy = -HOP_SPEED
             self._hops_left = HOPS_WHEN_DONE - 1
 
+    def claude_stopped(self) -> None:
+        """The user stopped the agent mid-turn: put the book away, no ❗ celebration."""
+        if self.thinking:
+            self._alone = 0.0
+            self._stop_thinking()
+
+    def _stop_thinking(self) -> None:
+        self.thinking = False
+        if self.state is State.THINKING:
+            self._settle()
+
     def set_bounds(self, bounds: Bounds) -> None:
         self.bounds = bounds
         self._clamp_into_bounds()
@@ -252,9 +263,7 @@ class Brain:
         if self.thinking:
             self._think_left -= dt
             if self._think_left <= 0:
-                self.thinking = False
-                if self.state is State.THINKING:
-                    self._settle()
+                self._stop_thinking()
         if self.state is State.FALLING:
             self._fall(dt)
         elif self.state is State.STRESSED:

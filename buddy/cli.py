@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from importlib import resources
@@ -32,6 +33,7 @@ WINDOWS_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 DETACHED_PROCESS = 0x00000008  # Windows process flags (subprocess only defines them on Windows)
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 START_TIMEOUT = 15.0  # seconds `buddy run` waits to see the new buddy answer
+HOOK_INPUT_TIMEOUT = 1.0  # seconds `buddy event` waits for the hook's JSON on stdin
 EVENTS = ("thinking", "done")
 
 
@@ -405,10 +407,40 @@ def _write_with_mode(path: Path, text: str, mode: int) -> None:
     os.chmod(path, mode)
 
 
+def _hook_transcript() -> str:
+    """The session transcript named in the hook's JSON on stdin, or "" — never waits long or fails."""
+    if sys.stdin is None or sys.stdin.isatty():
+        return ""
+    got = []
+
+    def read():
+        try:
+            got.append(sys.stdin.read())
+        except Exception:
+            pass
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    reader.join(HOOK_INPUT_TIMEOUT)
+    try:
+        path = json.loads(got[0])["transcript_path"]
+    except (IndexError, ValueError, KeyError, TypeError):
+        return ""
+    if not isinstance(path, str) or any(c in path for c in "\r\n"):
+        return ""
+    return path
+
+
 def cmd_event(args) -> int:
     """Called by AI agent hooks: must never fail or print anything but `{}` (Gemini wants JSON)."""
     try:
-        ipc.send(args.name)
+        command = args.name
+        if command == "thinking":
+            # Claude Code runs no hook when you interrupt it; buddy watches the transcript instead.
+            transcript = _hook_transcript()
+            if transcript:
+                command = f"thinking {transcript}"
+        ipc.send(command)
     except Exception:
         pass
     if args.json:
