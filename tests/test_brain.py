@@ -548,3 +548,52 @@ def test_short_break_from_the_computer_does_not_cut_a_nap_short():
     b = napping()
     b.set_system_idle(0.0)  # you are at the computer: the nap goes on
     assert b.asleep
+
+
+# --- speech ------------------------------------------------------------------
+
+
+def test_free_to_talk_when_idle_or_walking():
+    b = make()
+    assert b.free_to_talk
+    run(b, IDLE_SECONDS[0] + 0.05)
+    assert b.state is State.WALK and b.free_to_talk
+
+
+def test_says_something_for_a_while():
+    b = make()
+    b.say("hello", 2.0)
+    assert b.speech == "hello" and not b.free_to_talk
+    run(b, 1.9)
+    assert b.speech == "hello"
+    run(b, 0.2)
+    assert b.speech is None and b.free_to_talk
+
+
+def test_not_free_to_talk_while_a_bubble_shows_or_asleep():
+    b = make()
+    b.claude_thinking()
+    assert not b.free_to_talk
+    b = make()
+    b.set_system_idle(SYSTEM_IDLE_SECONDS)
+    assert not b.free_to_talk
+
+
+def test_a_reaction_cuts_the_speech_short():
+    b = make()
+    b.say("hello", 5.0)
+    b.press(10, 790)
+    b.release(10, 790)  # a click: love
+    b.tick(1 / 30)
+    assert b.bubble is Bubble.LOVE and b.speech is None
+    run(b, LOVE_SECONDS + 1)
+    assert b.speech is None  # it doesn't come back afterwards
+
+
+def test_dragging_cuts_the_speech_short():
+    b = make()
+    b.say("hello", 5.0)
+    b.press(b.x + 5, b.y + 5)
+    b.motion(b.x + 100, b.y - 100)
+    b.tick(1 / 30)
+    assert b.speech is None

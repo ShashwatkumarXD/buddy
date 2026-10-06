@@ -22,7 +22,7 @@ buddyw = "buddy.cli:main"  # Windows: starts buddy without a console window
 packages = ["buddy"]
 
 [tool.setuptools.package-data]
-buddy = ["assets/bubbles/*.png", "guide.txt"]
+buddy = ["assets/bubbles/*.png", "assets/messages.toml", "guide.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

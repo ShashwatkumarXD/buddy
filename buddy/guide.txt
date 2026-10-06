@@ -56,6 +56,12 @@ PLAYING WITH IT
                           until you're back. Clicking or dragging always wakes it.
   Laptop under load       💢 it stops and fidgets, and a green Matrix panel shows
                           CPU % and RAM %. Hidden again once things calm down.
+  Opening your laptop     👋 "Good morning!" a few minutes later (afternoon from 12,
+                          evening from 5 PM), once each per day
+  Now and then            a wave, a sparkly "Hi beautiful!" or a big smile 😊
+                          (every 20–40 minutes while you're using the computer)
+  Still up after 11 PM    "Are you still building something?", then a few nudges
+                          to go to sleep
   Clicks next to it go through to the window underneath.
 
 
@@ -91,6 +97,10 @@ SETTINGS  (~/.config/buddy/config.toml, edit with `buddy config`)
   ram_exit = 85           …and RAM stays below this, for a whole window
   window_seconds = 5      Length of that window in seconds (1–60)
   Each *_exit must be lower than its *_enter.
+
+  [talk]                  Hellos, greetings and bedtime nudges
+  enabled = true          false keeps it quiet
+  sleep_reminders = 2     Bedtime nudges after 11 PM (0–10)
 
 Try the stress look (all cores busy for 25 seconds):
   for i in $(seq $(nproc)); do timeout 25 sh -c 'while :; do :; done' & done
