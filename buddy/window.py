@@ -19,7 +19,7 @@ from PySide6.QtGui import QGuiApplication, QImage, QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import QApplication, QWidget
 
 from buddy import config as config_mod
-from buddy import ipc, sprites
+from buddy import ipc, sprites, transcript
 from buddy.idle import IdleClock
 from buddy.brain import Bounds, Brain, Bubble
 from buddy.config import Config
@@ -234,6 +234,7 @@ class Buddy:
         self._last = time.monotonic()
         self._layout()
         self.server = ipc.Server()
+        self._transcript = None  # the thinking agent's transcript, watched for an interrupt
         self.server.write_contact()
 
         screen = QGuiApplication.primaryScreen()
@@ -307,14 +308,23 @@ class Buddy:
     def on_monitor(self) -> bool:
         self.brain.set_stressed(self.monitor.tick())
         self.brain.set_system_idle(self.idle.seconds())
+        if self._transcript is not None:
+            if not self.brain.thinking:
+                self._transcript = None
+            elif self._transcript.interrupted():
+                self._transcript = None
+                self.brain.claude_stopped()
         return True
 
     @keep_alive
     def on_ipc(self) -> bool:
-        for command in self.server.poll():
+        for line in self.server.poll():
+            command, _, argument = line.partition(" ")
             if command == "thinking":
+                self._transcript = transcript.watch(argument)
                 self.brain.claude_thinking()
             elif command == "done":
+                self._transcript = None
                 self.brain.claude_done()
             elif command == "reload":
                 self.reload()

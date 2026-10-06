@@ -52,6 +52,20 @@ def test_command_round_trip(server):
     assert result["ok"] is True
 
 
+def test_thinking_carries_the_transcript_path(server):
+    path = "/home/jo/.claude/projects/my project/0a1b.jsonl"
+    thread, result = ask_in_background(f"thinking {path}")
+    assert pump(server, thread) == [f"thinking {path}"]
+    assert result["ok"] is True
+
+
+def test_unknown_command_with_an_argument_is_ignored(server):
+    thread, result = ask_in_background("format-disk /")
+    got = pump(server, thread)
+    assert result["ok"] is False
+    assert got == []
+
+
 def test_ping_answers_but_is_not_reported(server):
     thread, result = ask_in_background("ping")
     got = []

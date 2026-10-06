@@ -118,7 +118,7 @@ Then **restart your agent** (open sessions don't see the change until they resta
 |---|---|
 | you send a prompt | hurries to a spot near the right edge of the screen and reads its book |
 | the agent finishes | shows ❗ and jumps three times, then goes back to wandering |
-| you stop the agent early | keeps reading until your next prompt, or for up to 10 minutes |
+| you stop the agent early | puts the book away within a second (Claude Code); other agents: at your next prompt, or after 10 minutes |
 
 ## Settings
 

@@ -1,3 +1,4 @@
+import io
 import os
 import plistlib
 import sys
@@ -272,6 +273,29 @@ def test_event_reaches_the_running_buddy(live_buddy):
     while len(live_buddy) < 2 and time.monotonic() < deadline:
         time.sleep(0.01)
     assert live_buddy == ["thinking", "done"]
+
+
+def test_thinking_event_passes_on_the_transcript_path(live_buddy, monkeypatch):
+    payload = {"hook_event_name": "UserPromptSubmit", "transcript_path": "/home/jo/.claude/projects/p/s.jsonl"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert cli.main(["event", "thinking"]) == 0
+    deadline = time.monotonic() + 2
+    while not live_buddy and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert live_buddy == ["thinking /home/jo/.claude/projects/p/s.jsonl"]
+
+
+@pytest.mark.parametrize(
+    "stdin",
+    ["not json", "[]", '{"transcript_path": null}', '{"transcript_path": "/a/b.jsonl\\nquit"}', '{"transcript_path": ""}'],
+)
+def test_thinking_event_without_a_usable_transcript_still_thinks(live_buddy, monkeypatch, stdin):
+    monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
+    assert cli.main(["event", "thinking"]) == 0
+    deadline = time.monotonic() + 2
+    while not live_buddy and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert live_buddy == ["thinking"]
 
 
 def test_event_does_not_import_heavy_libraries():
