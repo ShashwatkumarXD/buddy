@@ -419,7 +419,15 @@ class Buddy:
     def _chatter(cfg: Config) -> Chatter | None:
         if not cfg.talk.enabled:
             return None
-        return Chatter(load_lines(), cfg.talk.sleep_reminders, paths.cache_dir() / "chatter.json")
+        t = cfg.talk
+        return Chatter(
+            load_lines(),
+            t.sleep_reminders,
+            paths.cache_dir() / "chatter.json",
+            greetings=t.greetings,
+            greeting_minutes=t.greeting_minutes,
+            quick_minutes=t.quick_minutes,
+        )
 
     def speak(self, say: Say) -> None:
         anim = speech.animate(say.style, say.text)
@@ -457,7 +465,8 @@ class Buddy:
         elif self.chatter is None:
             self.chatter = self._chatter(cfg)
         else:
-            self.chatter.sleep_reminders = cfg.talk.sleep_reminders
+            t = cfg.talk
+            self.chatter.configure(t.sleep_reminders, t.greetings, t.greeting_minutes, t.quick_minutes)
         self.brain.walk_speed = cfg.walk_speed
         self.brain.resize(self.sprite.width, self.sprite.height)
         self._layout()

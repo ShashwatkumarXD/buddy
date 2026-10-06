@@ -9,14 +9,17 @@ from buddy.chatter import (
     EDGE_DELAY,
     GREETING_GAP,
     OPEN_DELAY,
+    QUICK_GAP,
     REMINDER_GAP,
+    SETTLE_SECONDS,
     Chatter,
     Lines,
     load_lines,
 )
 
+WORDS = ["wave", "sparkle"]  # the hellos with words, on the slow clock
 LINES = Lines(
-    greetings={"wave": ["Hi!", "Hey!", "Yo!"], "sparkle": ["Hi beautiful!"], "smile": [""]},
+    greetings={"wave": ["Hi!", "Hey!", "Yo!"], "sparkle": ["Hi beautiful!"], "smile": [""], "hand": [""]},
     time={
         "morning": ["Good morning!"],
         "afternoon": ["Good afternoon!"],
@@ -148,30 +151,30 @@ def test_nothing_between_4_and_5_am():
 
 
 def test_greetings_are_spaced_out():
-    said = run(make(), at(14), 3600)
+    said = run(make(greetings=WORDS), at(14), 3 * GREETING_GAP[0] + 4 * 60)
     times = [t for t, _ in said]
     gap = timedelta(seconds=GREETING_GAP[0])
-    assert [s.kind for _, s in said] == ["afternoon", "greeting", "greeting"]
-    assert times[1] - times[0] == gap and times[2] - times[1] == gap
+    assert [s.kind for _, s in said] == ["afternoon", "greeting", "greeting", "greeting"]
+    assert {b - a for a, b in zip(times, times[1:])} == {gap}
 
 
 def test_a_greeting_waits_for_two_others_before_repeating():
-    c = make()
+    c = make(greetings=WORDS)
     run(c, at(14), 10 * 60)  # afternoon hello out of the way
     said = run(c, at(14, 10), 4 * GREETING_GAP[0] + 60, step=5)
     assert [s.text for _, s in said] == ["Hi!", "Hey!", "Yo!", "Hi!"]
 
 
 def test_moves_to_another_style_when_one_has_nothing_fresh():
-    lines = Lines(greetings={"wave": ["Hi!"], "smile": [""]}, time=LINES.time)
-    c = make(lines=lines)
+    lines = Lines(greetings={"wave": ["Hi!"], "sparkle": ["Wow!"]}, time=LINES.time)
+    c = make(lines=lines, greetings=WORDS)
     run(c, at(14), 10 * 60)
     said = run(c, at(14, 10), 3 * GREETING_GAP[0] + 60, step=5)
-    assert [(s.style, s.text) for _, s in said] == [("wave", "Hi!"), ("smile", ""), ("wave", "Hi!")]
+    assert [(s.style, s.text) for _, s in said] == [("wave", "Hi!"), ("sparkle", "Wow!"), ("wave", "Hi!")]
 
 
 def test_greeting_due_while_busy_is_skipped_not_queued():
-    c = make()
+    c = make(greetings=WORDS)
     run(c, at(14), 10 * 60)
     assert run(c, at(14, 10), GREETING_GAP[0], free=False, step=5) == []
     said = run(c, at(14, 10) + timedelta(seconds=GREETING_GAP[0]), 60, step=5)
@@ -182,8 +185,10 @@ def test_greeting_clock_stops_while_away():
     c = make()
     run(c, at(14), 10 * 60)
     run(c, at(14, 10), 3600, idle=AWAY_SECONDS, step=5)
-    said = run(c, at(15, 10), 15 * 60, step=5)
+    said = run(c, at(15, 10), GREETING_GAP[0] - 60, step=5)
     assert kinds(said, "greeting") == []
+    (first, _), *_ = kinds(said, "quick")
+    assert first >= at(15, 10) + timedelta(seconds=QUICK_GAP[0] - 5)  # counted afresh, not from before
 
 
 def test_said_today_survives_a_restart(tmp_path):
@@ -209,10 +214,99 @@ def test_broken_state_file_is_ignored(tmp_path):
 
 def test_bundled_lines_load_and_can_all_be_drawn():
     lines = load_lines()
-    assert lines.greetings["smile"] == [""]  # the smiley alone for now
+    assert lines.greetings["smile"] == lines.greetings["hand"] == [""]  # no words, just the picture
     assert lines.greetings["wave"] and lines.greetings["sparkle"]
     assert set(lines.time) == {"morning", "afternoon", "evening", "late_night", "sleep"}
     for group in (*lines.greetings.values(), *lines.time.values()):
         assert group
         for text in group:
             assert pixelfont.supports(text), text
+
+
+def test_only_the_chosen_greeting_styles_are_used():
+    c = make(greetings=["smile", "sparkle"])
+    run(c, at(14), 10 * 60)
+    said = run(c, at(14, 10), 4 * GREETING_GAP[0] + 60, step=5)
+    assert said and {s.style for _, s in said} <= {"smile", "sparkle"}
+
+
+def test_no_random_greetings_when_none_are_chosen():
+    said = run(make(greetings=[]), at(14), 3 * 3600 + 30 * 60, step=5)
+    assert [s.kind for _, s in said] == ["afternoon", "evening"]
+
+
+def test_greeting_gap_follows_the_setting():
+    said = run(make(greetings=WORDS, greeting_minutes=(60, 90)), at(14), 3 * 3600, step=5)
+    times = [t for t, s in said if s.kind in ("afternoon", "greeting")][:3]
+    assert [b - a for a, b in zip(times, times[1:])] == [timedelta(minutes=60)] * 2
+
+
+def test_new_settings_apply_without_a_restart():
+    c = make()
+    run(c, at(14), 10 * 60)
+    c.configure(sleep_reminders=0, greetings=["sparkle"], greeting_minutes=(5, 5), quick_minutes=(60, 60))
+    said = run(c, at(14, 10), 11 * 60, step=5)
+    assert [(s.style, t) for t, s in said] == [("sparkle", at(14, 15)), ("sparkle", at(14, 20))]
+
+
+def test_a_switched_off_style_never_comes_back_even_from_memory():
+    c = make(greetings=WORDS, lines=Lines(greetings={"wave": ["Hi!"], "sparkle": ["Wow!"]}, time=LINES.time))
+    run(c, at(14), 10 * 60)
+    run(c, at(14, 10), 2 * GREETING_GAP[0] + 60, step=5)  # remembers: wave "Hi!", then sparkle "Wow!"
+    c.configure(sleep_reminders=2, greetings=["sparkle"], greeting_minutes=(5, 5), quick_minutes=(60, 60))
+    said = run(c, at(14, 31), 16 * 60, step=5)
+    assert said and {s.style for _, s in said} == {"sparkle"}
+
+
+# --- quick reactions: the smiley and the waving hand, no words -----------------
+
+
+def test_wordless_reactions_come_often_on_their_own_clock():
+    c = make(greetings=["smile", "hand"])
+    run(c, at(14), 4 * 60)  # afternoon hello at 14:03
+    said = run(c, at(14, 4), 3 * QUICK_GAP[0] + 60, step=5)
+    assert {s.kind for _, s in said} == {"quick"}
+    times = [at(14, 3)] + [t for t, _ in said]
+    assert {b - a for a, b in zip(times, times[1:])} == {timedelta(seconds=QUICK_GAP[0])}
+
+
+def test_the_hand_is_a_wave_without_words():
+    c = make(greetings=["hand"])
+    run(c, at(14), 10 * 60)
+    (_, say), *_ = run(c, at(14, 10), QUICK_GAP[0], step=5)
+    assert (say.kind, say.style, say.text) == ("quick", "wave", "")
+
+
+def test_the_same_wordless_reaction_never_comes_twice_in_a_row():
+    c = make(greetings=["smile", "hand"])
+    run(c, at(14), 10 * 60)
+    said = run(c, at(14, 10), 4 * QUICK_GAP[0] + 60, step=5)
+    styles = [s.style for _, s in said]
+    assert len(styles) == 4 and all(a != b for a, b in zip(styles, styles[1:]))
+
+
+def test_wordless_reactions_do_not_hold_back_the_hellos_with_words():
+    said = run(make(), at(14), 3 * 3600, step=5)
+    hellos = [t for t, s in kinds(said, "afternoon", "greeting")]
+    assert len(hellos) >= 4  # the quick ones in between don't keep resetting the slow clock
+    assert len(kinds(said, "quick")) > len(hellos)
+
+
+def test_nothing_random_right_after_buddy_has_spoken():
+    said = run(make(), at(14), 3 * 3600, step=5)
+    times = [t for t, _ in said]
+    assert all(b - a >= timedelta(seconds=SETTLE_SECONDS) for a, b in zip(times, times[1:]))
+
+
+def test_wordless_reaction_due_while_busy_is_skipped_not_queued():
+    c = make(greetings=["smile"])
+    run(c, at(14), 10 * 60)
+    assert run(c, at(14, 10), QUICK_GAP[0], free=False, step=5) == []
+    assert run(c, at(14, 10) + timedelta(seconds=QUICK_GAP[0]), 60, step=5) == []
+
+
+def test_quick_gap_follows_the_setting():
+    c = make(greetings=["smile"], quick_minutes=(7, 7))
+    run(c, at(14), 10 * 60)
+    said = run(c, at(14, 10), 20 * 60, step=5)
+    assert [t for t, _ in said] == [at(14, 10), at(14, 17), at(14, 24)]

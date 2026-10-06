@@ -58,8 +58,10 @@ PLAYING WITH IT
                           CPU % and RAM %. Hidden again once things calm down.
   Opening your laptop     👋 "Good morning!" a few minutes later (afternoon from 12,
                           evening from 5 PM), once each per day
-  Now and then            a wave, a sparkly "Hi beautiful!" or a big smile 😊
-                          (every 20–40 minutes while you're using the computer)
+  Every few minutes       a quick smile 😊 or a wave 👋, no words
+                          (every 3–6 minutes of use; see [talk] below)
+  Now and then            a "Hi!" with a wave or a sparkly "Hi beautiful!"
+                          (every 10–20 minutes of use)
   Still up after 11 PM    "Are you still building something?", then a few nudges
                           to go to sleep
   Clicks next to it go through to the window underneath.
@@ -101,6 +103,13 @@ SETTINGS  (~/.config/buddy/config.toml, edit with `buddy config`)
   [talk]                  Hellos, greetings and bedtime nudges
   enabled = true          false keeps it quiet
   sleep_reminders = 2     Bedtime nudges after 11 PM (0–10)
+  greetings = ["wave", "sparkle", "smile", "hand"]
+                          Random hellos to use; remove any you don't want, [] for none.
+                          smile and hand have no words and come more often
+  greeting_minutes = [10, 20]
+                          Wait between hellos with words (wave, sparkle): somewhere
+                          between these two numbers of minutes of using the computer
+  quick_minutes = [3, 6]  Same, for the wordless smile and hand
 
 Try the stress look (all cores busy for 25 seconds):
   for i in $(seq $(nproc)); do timeout 25 sh -c 'while :; do :; done' & done

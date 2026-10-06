@@ -597,3 +597,37 @@ def test_dragging_cuts_the_speech_short():
     b.motion(b.x + 100, b.y - 100)
     b.tick(1 / 30)
     assert b.speech is None
+
+
+def test_never_dozes_off_mid_sentence():
+    """The opening hello can land just as buddy starts feeling lonely: it mustn't doze off mid-greeting."""
+    b = make(rand=0.0)
+    run(b, LONELY_SECONDS - 5)
+    while not b.free_to_talk:  # buddy only gets spoken for when free (a ❓ may still be showing)
+        b.tick(1 / 30)
+    b.say("Good afternoon!", 30.0)
+    for _ in range(round(29 * 30)):
+        assert b.speech is not None
+        b.tick(1 / 30)
+        assert b.state is not State.SLEEPING
+
+
+def test_talking_is_not_company():
+    """Its own chatter doesn't restart the lonely clock, or frequent little smiles would keep it from napping."""
+    b = make(rand=0.0)
+    run(b, LONELY_SECONDS - 5)
+    b.say("Good afternoon!", 5.0)
+    napped = False
+    for _ in range(round(30 * 30)):
+        b.tick(1 / 30)
+        napped = napped or b.asleep
+    assert napped
+
+
+def test_no_confused_turn_at_the_edge_while_talking():
+    b = walking(rand=0.0)
+    b.say("hello", 5.0)
+    b.x = BOUNDS.right - W - 1.0
+    run(b, 0.2)
+    assert b.facing == -1
+    assert b.bubble is None and b.speech == "hello"
