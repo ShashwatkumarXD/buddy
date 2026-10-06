@@ -184,7 +184,10 @@ class Brain:
             self._wake()
 
     def say(self, message, seconds: float) -> None:
-        """Show a speech bubble (whatever the window draws for `message`) for this long."""
+        """Show a speech bubble (whatever the window draws for `message`) for this long.
+
+        Its own chatter isn't company (the lonely clock keeps running); it just won't doze off or turn
+        confused at the screen edge mid-sentence."""
         self._speech = message
         self._speech_left = seconds
 
@@ -326,11 +329,11 @@ class Brain:
         if self.x <= lo or self.x >= hi:
             self.x = float(min(max(self.x, lo), hi))
             self.facing = 1 if self.x <= lo else -1
-            if self.rng.random() < EDGE_CONFUSED_CHANCE:
+            if self.speech is None and self.rng.random() < EDGE_CONFUSED_CHANCE:
                 self._confused_left = CONFUSED_SECONDS
         self._timer -= dt
         if self._timer <= 0:
-            if self._alone >= LONELY_SECONDS and self.rng.random() < NAP_CHANCE:
+            if self._alone >= LONELY_SECONDS and self.speech is None and self.rng.random() < NAP_CHANCE:
                 self._fall_asleep(nap=self.rng.uniform(*NAP_SECONDS))
                 return
             self.state = State.IDLE

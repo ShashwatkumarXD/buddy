@@ -8,6 +8,7 @@ from buddy import paths
 
 
 STYLES = ("hgss", "gba", "ds")
+GREETINGS = ("wave", "sparkle", "smile", "hand")  # the random hellos buddy knows (smile and hand have no words)
 
 
 class ConfigError(ValueError):
@@ -27,6 +28,9 @@ class StressConfig:
 class TalkConfig:
     enabled: bool = True  # time-of-day hellos, random greetings, late-night nudges
     sleep_reminders: int = 2  # bedtime nudges after "are you still building something?"
+    greetings: list[str] = field(default_factory=lambda: list(GREETINGS))  # random hellos to use
+    greeting_minutes: list[int] = field(default_factory=lambda: [10, 20])  # gap between hellos with words: low, high
+    quick_minutes: list[int] = field(default_factory=lambda: [3, 6])  # gap between wordless ones: low, high
 
 
 @dataclass
@@ -69,6 +73,9 @@ def load(path: Path | None = None) -> Config:
             talk=TalkConfig(
                 enabled=_bool(talk, "enabled", t.enabled),
                 sleep_reminders=_int(talk, "sleep_reminders", t.sleep_reminders),
+                greetings=_names(talk, "greetings", t.greetings),
+                greeting_minutes=_ints(talk, "greeting_minutes", t.greeting_minutes),
+                quick_minutes=_ints(talk, "quick_minutes", t.quick_minutes),
             ),
         )
         validate(cfg)
@@ -111,7 +118,10 @@ def save(cfg: Config, path: Path | None = None) -> None:
         f"window_seconds = {s.window_seconds}\n"
         "\n[talk]\n"
         f"enabled = {'true' if cfg.talk.enabled else 'false'}\n"
-        f"sleep_reminders = {cfg.talk.sleep_reminders}  # bedtime nudges after 11 PM\n",
+        f"sleep_reminders = {cfg.talk.sleep_reminders}  # bedtime nudges after 11 PM\n"
+        f"greetings = {json.dumps(cfg.talk.greetings)}  # random hellos: wave, sparkle, smile, hand ([] for none)\n"
+        f"greeting_minutes = {json.dumps(cfg.talk.greeting_minutes)}  # minutes between wave/sparkle hellos: low, high\n"
+        f"quick_minutes = {json.dumps(cfg.talk.quick_minutes)}  # minutes between the wordless smile/hand: low, high\n",
         encoding="utf-8",
     )
 
@@ -135,6 +145,13 @@ def validate(cfg: Config) -> None:
         raise ConfigError("window_seconds must be between 1 and 60")
     if not 0 <= cfg.talk.sleep_reminders <= 10:
         raise ConfigError("sleep_reminders must be between 0 and 10")
+    for name in cfg.talk.greetings:
+        if name not in GREETINGS:
+            raise ConfigError(f"greetings: unknown {name!r} (choose from {', '.join(GREETINGS)})")
+    for key in ("greeting_minutes", "quick_minutes"):
+        minutes = getattr(cfg.talk, key)
+        if len(minutes) != 2 or not 1 <= minutes[0] <= minutes[1] <= 1440:
+            raise ConfigError(f"{key} must be [low, high] minutes, 1–1440, low no more than high")
 
 
 def _string(table: dict, key: str, default: str) -> str:
@@ -149,6 +166,20 @@ def _bool(table: dict, key: str, default: bool) -> bool:
     if not isinstance(value, bool):
         raise ConfigError(f"{key} must be true or false, got {value!r}")
     return value
+
+
+def _names(table: dict, key: str, default: list[str]) -> list[str]:
+    value = table.get(key, default)
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ConfigError(f"{key} must be a list of names, got {value!r}")
+    return [v.strip().lower() for v in value]
+
+
+def _ints(table: dict, key: str, default: list[int]) -> list[int]:
+    value = table.get(key, default)
+    if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
+        raise ConfigError(f"{key} must be two whole numbers like [20, 40], got {value!r}")
+    return list(value)
 
 
 def _int(table: dict, key: str, default: int) -> int:

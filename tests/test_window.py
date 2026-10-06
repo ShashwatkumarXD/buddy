@@ -264,3 +264,24 @@ def test_words_are_drawn_at_least_twice_native_size(sprite_scale, factor):
     from buddy import window
 
     assert window.speech_scale(sprite_scale) == factor
+
+
+def test_greeting_settings_reach_the_chatter_and_follow_a_reload(qapp, runtime, cached, monkeypatch):
+    from buddy import window
+
+    cfg = config.Config(talk=config.TalkConfig(greetings=["wave"], greeting_minutes=[60, 90], quick_minutes=[2, 4]))
+    pet = window.Buddy(qapp, cfg, cached)
+    try:
+        assert pet.chatter.greetings == ["wave"]
+        assert pet.chatter.greeting_gap == (3600, 5400)
+        assert pet.chatter.quick_gap == (120, 240)
+        talk = config.TalkConfig(greetings=["smile"], greeting_minutes=[5, 10], quick_minutes=[7, 8], sleep_reminders=1)
+        config.save(config.Config(talk=talk))
+        monkeypatch.setattr(window.sprites, "load_cached", lambda *a, **k: cached)
+        pet.reload()
+        assert pet.chatter.greetings == ["smile"]
+        assert pet.chatter.greeting_gap == (300, 600)
+        assert pet.chatter.quick_gap == (420, 480)
+        assert pet.chatter.sleep_reminders == 1
+    finally:
+        pet.shutdown()

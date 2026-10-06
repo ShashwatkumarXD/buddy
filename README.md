@@ -28,8 +28,8 @@ while Claude Code, Gemini CLI or Codex is working.
   it hurries to the right side of the screen and reads a book while the agent works. When the
   agent finishes, it jumps up and down with a ❗.
 - **Says hello.** A few minutes after you open your laptop it waves "Good morning!" (or good
-  afternoon, or good evening), and now and then it greets you with a wave, a sparkly "Hi beautiful!"
-  or just a big smile 😊. Still up after 11 PM? It asks if you're still building something, then
+  afternoon, or good evening). Every few minutes it flashes a quick smile 😊 or a wave 👋, and now
+  and then it says "Hi!" or a sparkly "Hi beautiful!". Still up after 11 PM? It asks if you're still building something, then
   reminds you to get some sleep.
 - **Stays out of your way.** Clicks right next to it go through to the window underneath.
 
@@ -140,6 +140,9 @@ your changes and reloads.
 | `window_seconds` | `5` | How many seconds usage has to stay high (or low) before Buddy reacts. |
 | `enabled` (in `[talk]`) | `true` | Set to `false` and Buddy keeps its hellos and bedtime nudges to itself. |
 | `sleep_reminders` (in `[talk]`) | `2` | How many times it nudges you to sleep after 11 PM (0–10). |
+| `greetings` (in `[talk]`) | `["wave", "sparkle", "smile", "hand"]` | Which random hellos it uses: a "Hi!" with a wave, a sparkly "Hi beautiful!", or, without words, a smile or a waving hand. Remove the ones you don't want; `[]` for none. |
+| `greeting_minutes` (in `[talk]`) | `[10, 20]` | How long between hellos with words (`wave`, `sparkle`), in minutes of use: a random wait between the two numbers. |
+| `quick_minutes` (in `[talk]`) | `[3, 6]` | The same for the wordless `smile` and `hand`, which come more often. |
 
 ### Sprite styles
 

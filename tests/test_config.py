@@ -9,7 +9,13 @@ def test_missing_file_gives_defaults(tmp_path):
     assert cfg == Config()
     assert (cfg.pokemon, cfg.style, cfg.scale, cfg.walk_speed) == ("pikachu", "hgss", 2, 20)
     assert cfg.stress == StressConfig(85, 90, 70, 85, 5)
-    assert cfg.talk == TalkConfig(enabled=True, sleep_reminders=2)
+    assert cfg.talk == TalkConfig(
+        enabled=True,
+        sleep_reminders=2,
+        greetings=["wave", "sparkle", "smile", "hand"],
+        greeting_minutes=[10, 20],
+        quick_minutes=[3, 6],
+    )
 
 
 def test_round_trip(tmp_path):
@@ -19,7 +25,9 @@ def test_round_trip(tmp_path):
         scale=3,
         walk_speed=35.5,
         stress=StressConfig(cpu_enter=80, ram_enter=92, cpu_exit=60, ram_exit=80, window_seconds=8),
-        talk=TalkConfig(enabled=False, sleep_reminders=4),
+        talk=TalkConfig(
+            enabled=False, sleep_reminders=4, greetings=["smile", "hand"], greeting_minutes=[60, 90], quick_minutes=[1, 2]
+        ),
     )
     path = tmp_path / "sub" / "config.toml"
     config.save(cfg, path)
@@ -66,6 +74,16 @@ def test_default_path_is_in_the_platform_config_folder():
         ('[talk]\nenabled = "yes"\n', "enabled"),
         ("[talk]\nsleep_reminders = -1\n", "sleep_reminders"),
         ("[talk]\nsleep_reminders = 11\n", "sleep_reminders"),
+        ('[talk]\ngreetings = "wave"\n', "greetings"),
+        ('[talk]\ngreetings = ["wave", "dance"]\n', "dance"),
+        ("[talk]\ngreeting_minutes = 30\n", "greeting_minutes"),
+        ("[talk]\ngreeting_minutes = [40, 20]\n", "greeting_minutes"),
+        ("[talk]\ngreeting_minutes = [0, 20]\n", "greeting_minutes"),
+        ("[talk]\ngreeting_minutes = [20, 2000]\n", "greeting_minutes"),
+        ('[talk]\ngreeting_minutes = [20, "40"]\n', "greeting_minutes"),
+        ("[talk]\nquick_minutes = 5\n", "quick_minutes"),
+        ("[talk]\nquick_minutes = [6, 3]\n", "quick_minutes"),
+        ("[talk]\nquick_minutes = [0, 3]\n", "quick_minutes"),
     ],
 )
 def test_invalid_config_raises_clear_error(tmp_path, text, message):
@@ -95,3 +113,21 @@ def test_salvage_keeps_valid_pokemon_and_style(tmp_path):
     assert (cfg.pokemon, cfg.style, cfg.scale) == ("eevee", "ds", Config().scale)
     path.write_text("not toml at all [")
     assert config.salvage(path) == Config()
+
+
+def test_greeting_settings_can_be_trimmed(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[talk]\ngreetings = [" Smile ", "wave", "HAND"]\ngreeting_minutes = [30, 30]\nquick_minutes = [2, 4]\n')
+    talk = config.load(path).talk
+    assert talk.greetings == ["smile", "wave", "hand"]
+    assert talk.greeting_minutes == [30, 30]
+    assert talk.quick_minutes == [2, 4]
+
+
+def test_no_random_greetings_at_all(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text("[talk]\ngreetings = []\n")
+    cfg = config.load(path)
+    assert cfg.talk.greetings == []
+    config.save(cfg, path)
+    assert config.load(path).talk.greetings == []
