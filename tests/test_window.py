@@ -230,7 +230,12 @@ def test_speech_stays_on_screen_at_the_edge(buddy):
 
 def test_monitor_tick_asks_the_chatter(buddy, monkeypatch):
     from buddy.chatter import Say
+    from buddy.idle import IdleClock
 
+    # Pin the machine's state: a CI runner nobody has touched for hours would put buddy to sleep
+    # (Windows reports real idle time), and a busy runner could make it stressed; either way it's not free.
+    buddy.idle = IdleClock([lambda: 0.0])
+    monkeypatch.setattr(buddy.monitor, "tick", lambda: False)
     asked = []
 
     def tick(now, idle, free):
