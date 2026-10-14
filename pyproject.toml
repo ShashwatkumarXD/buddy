@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,10 @@ name = "buddy"
 version = "0.1.0"
 description = "A Pokémon desktop buddy that shows when your laptop is stressed"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Shashwat Kumar" }]
+readme = "README.md"
 dependencies = ["PySide6-Essentials>=6.6", "psutil", "Pillow"]
 
 [project.optional-dependencies]

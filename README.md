@@ -212,3 +212,13 @@ The design notes live in [`docs/superpowers/specs/`](docs/superpowers/specs/).
 - Black/White sprites (`ds`) and Pokémon data: [PokéAPI](https://pokeapi.co)
 - Pokémon is © Nintendo / Creatures / GAME FREAK. This is a fan project for personal use; no sprites
   are included in this repository. Each one is downloaded on your own computer when you choose it.
+
+## Contributing
+
+Pull requests are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up, test and
+send one.
+
+## License
+
+Buddy's code is released under the [MIT License](LICENSE). Pokémon sprites, names and characters
+are not covered by it (see Credits above).
